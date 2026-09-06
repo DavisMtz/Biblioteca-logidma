@@ -22,19 +22,29 @@ los lee en el navegador, paginados, sin descargar nada.
 | --- | --- |
 | Worker (API + servido) | `src/index.ts`, Hono sobre Cloudflare Workers |
 | Interfaz | `public/` — HTML, CSS y JS sin compilar, servido como Static Assets |
-| Archivos de los libros | R2, bucket `biblioteca-logidma` |
+| Archivos de los libros | Workers KV, namespace `biblioteca-archivos`, troceados en 5 MiB |
 | Catálogo y marcadores | D1, base `biblioteca-logidma` (`migraciones/`) |
 | Portadas | Cloudinary (cloud `srz5sh9l`, carpeta `biblioteca/portadas`) |
 
 Decisiones que no se deducen mirando el código:
 
+- **Los archivos viven en KV, no en R2, y es deliberado.** R2 exige un método de
+  pago para activarse aunque su tramo sea gratuito; KV entra en el plan gratis de
+  Workers. El techo es **1 GB por namespace y 1000 escrituras al día** (cada
+  parte de 5 MiB es una escritura). Si algún día hace falta más, mudarse a R2 es
+  cambiar el binding y las cuatro funciones de `/archivo` y `/api/subir`.
+- **Cada libro se guarda troceado** en claves `libro:<id>:<n>` de 5 MiB (el tope
+  de KV por valor es 25 MiB). Como todas las partes miden lo mismo salvo la
+  última, `GET /archivo/:id` calcula qué partes tocar y responde rangos (`206`),
+  que es lo que PDF.js necesita para abrir un libro grande sin bajarlo entero.
+  El tamaño del archivo lo calcula el servidor, no lo declara el navegador.
+- **KV es de consistencia eventual**: al leer una parte se reintenta tres veces
+  antes de darla por perdida, porque una recién escrita puede tardar en verse.
 - **Todo el tráfico de archivos pasa por el Worker.** El endpoint S3 de R2
-  (`*.r2.cloudflarestorage.com`) está bloqueado en la red de la oficina, así que
-  no se usan URLs prefirmadas: `GET /archivo/:id` lee del binding y responde
-  rangos (`206`), que es lo que PDF.js necesita para abrir un libro grande sin
-  bajarlo entero.
-- **Las subidas van por partes** (`/api/subir/iniciar` → `parte` → `completar`,
-  10 MiB por parte). Un Worker no acepta cuerpos de más de 100 MB de una vez.
+  (`*.r2.cloudflarestorage.com`) está además bloqueado en la red de la oficina,
+  así que las URLs prefirmadas tampoco eran una opción.
+- **Las subidas van por partes** (`/api/subir/iniciar` → `parte` → `completar`).
+  Un Worker no acepta cuerpos de más de 100 MB de una vez.
 - **La portada no pasa por el Worker:** el navegador pide una firma
   (`/api/portada/firma`) y sube directo a Cloudinary. El `api_secret` no sale del
   servidor y el destino lo decide él, no el cliente.

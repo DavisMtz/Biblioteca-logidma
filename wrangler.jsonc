@@ -27,10 +27,13 @@
     }
   ],
 
-  "r2_buckets": [
+  // Los archivos viven en KV, no en R2: R2 pide método de pago aunque su
+  // tramo sea gratuito, y esta biblioteca no debe costar nada.
+  // Techo del plan gratis: 1 GB por namespace y 1000 escrituras al día.
+  "kv_namespaces": [
     {
-      "binding": "LIBROS",
-      "bucket_name": "biblioteca-logidma"
+      "binding": "ARCHIVOS",
+      "id": "a07ed8adbd2649b8943dc048493c91a2"
     }
   ],
 
