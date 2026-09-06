@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "public/css/lector.css"
+        ],
+        "createdAt": "2026-09-06T22:39:28.882Z",
+        "reason": "decidido por Claude: la linea 82 es blockquote > border-left en el LECTOR de libros, la convencion tipografica de una cita, no una tarjeta con pestana de color; ademas usa --accent-sua (tono muy suave), no el acento fuerte"
+      }
+    ]
+  }
+}

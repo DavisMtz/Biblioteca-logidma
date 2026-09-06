@@ -28,7 +28,8 @@ const CLAVE_TAMANO = 'bib.tamano';
 /* ---------------- carga del libro ---------------- */
 
 function progreso(porcentaje, texto) {
-  $('progreso-barra').style.width = `${Math.max(4, Math.min(100, porcentaje))}%`;
+  const parte = Math.max(4, Math.min(100, porcentaje)) / 100;
+  $('progreso-barra').style.transform = `scaleX(${parte})`;
   if (texto) $('progreso-texto').textContent = texto;
 }
 
@@ -140,11 +141,24 @@ async function pintarPdf() {
   lienzo.style.width = `${Math.floor(vista.width / nitidez)}px`;
   lienzo.style.height = `${Math.floor(vista.height / nitidez)}px`;
 
-  tareaRender = hojaPdf.render({ canvasContext: lienzo.getContext('2d'), viewport: vista });
-  try { await tareaRender.promise; } catch (error) {
-    if (error?.name !== 'RenderingCancelledException') throw error;
-  }
-  tareaRender = null;
+  const tarea = hojaPdf.render({ canvasContext: lienzo.getContext('2d'), viewport: vista });
+  tareaRender = tarea;
+  tarea.promise.then(
+    () => { if (tareaRender === tarea) tareaRender = null; },
+    (error) => {
+      if (tareaRender === tarea) tareaRender = null;
+      if (error?.name !== 'RenderingCancelledException') console.error(error);
+    },
+  );
+
+  // PDF.js programa la continuación del dibujo con requestAnimationFrame, y
+  // Chrome lo congela en las pestañas de segundo plano: esperar la promesa
+  // dejaría el aviso de «Abriendo el PDF…» pegado hasta que alguien mire la
+  // pestaña. La página ya se ve mientras tanto.
+  await Promise.race([
+    tarea.promise.catch(() => {}),
+    new Promise((r) => setTimeout(r, 2500)),
+  ]);
 }
 
 /* ---------------- texto paginado ---------------- */

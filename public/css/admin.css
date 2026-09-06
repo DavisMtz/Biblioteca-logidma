@@ -66,7 +66,8 @@
 .ficha__acciones [data-quitar] { margin-left: auto; }
 
 .barra { height: 6px; border-radius: var(--radius-full); background: var(--surface-2); overflow: hidden; }
-.barra span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .25s var(--ease); }
+.barra span { display: block; height: 100%; width: 100%; background: var(--accent); border-radius: inherit;
+  transform: scaleX(0); transform-origin: left; transition: transform .25s var(--ease); }
 .barra--ok span { background: var(--success); }
 .barra--error span { background: var(--danger); }
 .ficha__estado { font-size: var(--fs-xs); color: var(--text-mut); }

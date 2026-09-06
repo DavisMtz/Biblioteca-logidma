@@ -191,6 +191,7 @@ function crearFicha(archivo) {
     boton.disabled = true;
     ficha.querySelectorAll('input, textarea, select').forEach((c) => { c.disabled = true; });
     barra.className = 'barra';
+    relleno.style.transform = 'scaleX(0)';
     try {
       const valor = (campo) => ficha.querySelector(`[data-campo="${campo}"]`).value.trim();
 
@@ -208,7 +209,7 @@ function crearFicha(archivo) {
         });
         if (!resp.ok) throw new Error(`Falló la parte ${n} de ${total}`);
         partes.push(await resp.json());
-        relleno.style.width = `${(n / total) * 88}%`;
+        relleno.style.transform = `scaleX(${(n / total) * 0.88})`;
         decir(total > 1 ? `Subiendo… parte ${n} de ${total}` : 'Subiendo…');
       }
 
@@ -216,7 +217,7 @@ function crearFicha(archivo) {
         decir('Subiendo la portada…');
         portadaUrl = await subirPortada(portadaBlob, inicio.id).catch(() => '');
       }
-      relleno.style.width = '96%';
+      relleno.style.transform = 'scaleX(.96)';
 
       decir('Guardando en el catálogo…');
       const anio = Number(valor('anio'));
@@ -232,7 +233,7 @@ function crearFicha(archivo) {
         }),
       });
 
-      relleno.style.width = '100%';
+      relleno.style.transform = 'scaleX(1)';
       barra.className = 'barra barra--ok';
       decir('Listo. Ya está en la biblioteca.', 'ok');
       boton.textContent = 'Ver en la biblioteca';
@@ -242,7 +243,7 @@ function crearFicha(archivo) {
       Bib.brindis(`«${libro.titulo}» se subió correctamente`);
     } catch (fallo) {
       barra.className = 'barra barra--error';
-      relleno.style.width = '100%';
+      relleno.style.transform = 'scaleX(1)';
       decir(fallo.message, 'error');
       boton.disabled = false;
       ficha.querySelectorAll('input, textarea, select').forEach((c) => { c.disabled = false; });

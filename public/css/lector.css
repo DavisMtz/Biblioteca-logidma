@@ -98,7 +98,8 @@
 
 .hoja__cargando { display: flex; flex-direction: column; align-items: center; gap: var(--s3); color: var(--text-mut); font-size: var(--fs-sm); padding: var(--s6); text-align: center; }
 .progreso { width: 220px; height: 4px; background: var(--surface-2); border-radius: var(--radius-full); overflow: hidden; }
-.progreso span { display: block; height: 100%; width: 15%; background: var(--accent); border-radius: inherit; transition: width .25s var(--ease); }
+.progreso span { display: block; height: 100%; width: 100%; background: var(--accent); border-radius: inherit;
+  transform: scaleX(.15); transform-origin: left; transition: transform .25s var(--ease); }
 
 /* ---------- flechas laterales ---------- */
 
