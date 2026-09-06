@@ -198,7 +198,9 @@ function medir() {
   if (pagina > total) pagina = total;
   colocar(false);
   actualizarControles();
-  if (libro && libro.paginas !== total) guardarPaginas(total);
+  // El reparto del texto depende de la pantalla: guardar ese número en el
+  // catálogo lo haría bailar según quién abra el libro. Solo el PDF tiene
+  // páginas de verdad.
 }
 
 function colocar(animar = true) {
@@ -326,6 +328,7 @@ async function irAMarcador() {
   }
 }
 
+/** Solo para PDF: son páginas reales del archivo, iguales para todos. */
 function guardarPaginas(n) {
   // Solo un administrador puede escribirlo; para el resto falla en silencio.
   Bib.api(`/api/libros/${encodeURIComponent(idLibro)}`, {
