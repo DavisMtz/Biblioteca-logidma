@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es" data-tema="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca Logidma</title>
+<meta name="description" content="Biblioteca virtual de Logidma: consulta y lee los documentos del equipo en el navegador.">
+<link rel="icon" href="/img/icono.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/estilo.css">
+<link rel="stylesheet" href="/css/catalogo.css">
+</head>
+<body>
+
+<header class="cabecera">
+  <div class="contenedor cabecera__fila">
+    <a class="marca" href="/">
+      <svg class="marca__icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H11v18H5.5A1.5 1.5 0 0 1 4 19.5z"/>
+        <path d="M11 3h7.5A1.5 1.5 0 0 1 20 4.5v15a1.5 1.5 0 0 1-1.5 1.5H11z"/>
+        <path d="M7.5 7.5h1M7.5 11h1M14.5 7.5h2M14.5 11h2"/>
+      </svg>
+      <span class="marca__texto">
+        <span class="marca__nombre">Biblioteca</span>
+        <span class="marca__sub">Logidma</span>
+      </span>
+    </a>
+
+    <div class="buscador">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+      </svg>
+      <label class="visualmente-oculto" for="buscar">Buscar en la biblioteca</label>
+      <input class="entrada" id="buscar" type="search" placeholder="Buscar por título, autor o tema" autocomplete="off">
+    </div>
+
+    <button class="btn btn--icono btn--linea" id="btn-tema" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Cambiar tema">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>
+      </svg>
+    </button>
+
+    <a class="btn btn--linea" id="enlace-admin" href="/admin">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="4" y="10.5" width="16" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>
+      </svg>
+      <span id="texto-admin">Administrar</span>
+    </a>
+  </div>
+</header>
+
+<main>
+  <section class="portada contenedor">
+    <div class="portada__texto">
+      <h1>La estantería del equipo</h1>
+      <p class="portada__sub">Manuales, procedimientos y lecturas de Logidma. Se abren aquí mismo, sin descargar nada.</p>
+    </div>
+    <dl class="portada__cifras" id="cifras" aria-live="polite">
+      <div><dt>Libros</dt><dd id="cifra-libros">—</dd></div>
+      <div><dt>Categorías</dt><dd id="cifra-categorias">—</dd></div>
+    </dl>
+  </section>
+
+  <nav class="filtros contenedor" id="filtros" aria-label="Filtrar por categoría"></nav>
+
+  <section class="contenedor">
+    <div class="rejilla" id="rejilla" aria-live="polite" aria-busy="true"></div>
+  </section>
+</main>
+
+<footer class="pie">
+  <div class="contenedor pie__fila">
+    <span>Biblioteca Logidma</span>
+    <span class="pie__sep" aria-hidden="true">·</span>
+    <a href="https://logidma.com" target="_blank" rel="noopener">logidma.com</a>
+  </div>
+</footer>
+
+<div class="brindis" id="brindis" role="status" aria-live="polite"></div>
+
+<script src="/js/comun.js"></script>
+<script src="/js/catalogo.js"></script>
+</body>
+</html>

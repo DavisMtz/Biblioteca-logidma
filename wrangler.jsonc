@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "biblioteca-logidma",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "workers_dev": true,
+
+  // El dominio biblioteca.logidma.com se ata UNA sola vez con
+  // PUT /accounts/{id}/workers/domains y sobrevive a cada despliegue.
+  // No declarar "routes" aquí: el token de esta cuenta no tiene
+  // Zone -> Workers Routes -> Edit y el deploy revienta DESPUES de subir.
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/archivo/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "biblioteca-logidma",
+      "database_id": "797af67d-0921-4366-b10e-1e5d8a2ba52a",
+      "migrations_dir": "migraciones"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "LIBROS",
+      "bucket_name": "biblioteca-logidma"
+    }
+  ],
+
+  "vars": {
+    "CLOUDINARY_CLOUD": "srz5sh9l",
+    "CLOUDINARY_API_KEY": "922443627716875",
+    "CLOUDINARY_CARPETA": "biblioteca/portadas"
+  }
+}

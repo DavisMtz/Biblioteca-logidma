@@ -1,0 +1,115 @@
+/* Panel de administración: acceso, subida y catálogo editable. */
+
+.tarjeta {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--sh-1);
+  padding: var(--s6);
+}
+
+/* ---------- acceso ---------- */
+
+.acceso { display: flex; justify-content: center; padding: var(--s8) var(--s4); }
+.acceso__tarjeta { width: min(420px, 100%); display: flex; flex-direction: column; gap: var(--s4); }
+.acceso__tarjeta h1 { font-size: var(--fs-xl); }
+.acceso__texto { font-size: var(--fs-sm); color: var(--text-mut); margin-top: calc(var(--s2) * -1); }
+
+/* ---------- pestañas ---------- */
+
+.pestanas { display: flex; gap: var(--s5); border-bottom: 1px solid var(--border); margin-block: var(--s6) var(--s5); }
+.pestana {
+  font: inherit; font-size: var(--fs-sm); font-weight: 600;
+  background: none; border: none; cursor: pointer;
+  padding: var(--s3) 2px; color: var(--text-mut);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .16s var(--ease), border-color .16s var(--ease);
+}
+.pestana:hover { color: var(--text); }
+.pestana[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ---------- zona de arrastre ---------- */
+
+.soltar {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s2);
+  padding: var(--s8) var(--s5); text-align: center; cursor: pointer;
+  border: 2px dashed var(--border-fuerte); border-radius: var(--radius-lg);
+  background: var(--surface); color: var(--text-mut);
+  transition: border-color .16s var(--ease), background .16s var(--ease);
+}
+.soltar:hover, .soltar:focus-visible { border-color: var(--accent); background: var(--accent-sua); }
+.soltar[data-encima="1"] { border-color: var(--accent); background: var(--accent-sua); }
+.soltar svg { width: 40px; height: 40px; color: var(--accent); }
+.soltar__titulo { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.soltar__formatos { font-size: var(--fs-xs); letter-spacing: .06em; }
+
+/* ---------- cola de subida ---------- */
+
+.cola { display: flex; flex-direction: column; gap: var(--s4); padding-block: var(--s5) var(--s8); }
+
+.ficha {
+  display: grid; gap: var(--s5);
+  grid-template-columns: 132px 1fr;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: var(--s5); box-shadow: var(--sh-1);
+}
+.ficha__portada {
+  position: relative; aspect-ratio: 3/4.2; border-radius: var(--radius-sm);
+  background: var(--surface-2); overflow: hidden; box-shadow: var(--sh-1);
+}
+.ficha__portada img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ficha__cuerpo { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.ficha__archivo { font-size: var(--fs-xs); color: var(--text-mut); display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+.ficha__campos { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.ficha__campos .campo--ancho { grid-column: 1 / -1; }
+.ficha__acciones { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-top: var(--s1); }
+.ficha__acciones [data-quitar] { margin-left: auto; }
+
+.barra { height: 6px; border-radius: var(--radius-full); background: var(--surface-2); overflow: hidden; }
+.barra span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .25s var(--ease); }
+.barra--ok span { background: var(--success); }
+.barra--error span { background: var(--danger); }
+.ficha__estado { font-size: var(--fs-xs); color: var(--text-mut); }
+.ficha__estado[data-tipo="error"] { color: var(--danger); }
+.ficha__estado[data-tipo="ok"] { color: var(--success); }
+
+/* ---------- lista del catálogo ---------- */
+
+.buscador--ancho { max-width: 100%; margin-bottom: var(--s4); }
+
+.lista { display: flex; flex-direction: column; gap: var(--s2); padding-bottom: var(--s8); }
+.fila {
+  display: grid; grid-template-columns: 44px 1fr auto; gap: var(--s4); align-items: center;
+  padding: var(--s3) var(--s4);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+  transition: border-color .16s var(--ease);
+}
+.fila:hover { border-color: var(--border-fuerte); }
+.fila__mini { aspect-ratio: 3/4.2; border-radius: 3px; overflow: hidden; background: var(--surface-2); box-shadow: var(--sh-1); position: relative; }
+.fila__mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fila__datos { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fila__titulo { font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fila__meta { font-size: var(--fs-xs); color: var(--text-mut); display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+.fila__acciones { display: flex; gap: var(--s2); }
+
+/* ---------- modal ---------- */
+
+.modal { border: none; padding: 0; background: transparent; max-width: min(620px, 94vw); width: 100%; }
+.modal::backdrop { background: rgba(20,16,12,.55); backdrop-filter: blur(3px); }
+.modal__caja {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--sh-3); overflow: hidden;
+  display: flex; flex-direction: column; max-height: 88vh;
+}
+.modal__cabecera { display: flex; align-items: center; gap: var(--s3); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+.modal__cabecera h2 { font-size: var(--fs-lg); margin-right: auto; }
+.modal__cuerpo { padding: var(--s5); overflow-y: auto; display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.modal__cuerpo .campo--ancho { grid-column: 1 / -1; }
+.modal__pie { display: flex; justify-content: flex-end; gap: var(--s3); padding: var(--s4) var(--s5); border-top: 1px solid var(--border); background: var(--surface-2); }
+
+@media (max-width: 640px) {
+  .ficha { grid-template-columns: 84px 1fr; gap: var(--s4); padding: var(--s4); }
+  .fila { grid-template-columns: 36px 1fr; }
+  .fila__acciones { grid-column: 1 / -1; justify-content: flex-end; }
+  .tarjeta { padding: var(--s5); }
+}

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es" data-tema="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Administración · Biblioteca Logidma</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/img/icono.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/estilo.css">
+<link rel="stylesheet" href="/css/catalogo.css">
+<link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+
+<header class="cabecera">
+  <div class="contenedor cabecera__fila">
+    <a class="marca" href="/">
+      <svg class="marca__icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H11v18H5.5A1.5 1.5 0 0 1 4 19.5z"/>
+        <path d="M11 3h7.5A1.5 1.5 0 0 1 20 4.5v15a1.5 1.5 0 0 1-1.5 1.5H11z"/>
+        <path d="M7.5 7.5h1M7.5 11h1M14.5 7.5h2M14.5 11h2"/>
+      </svg>
+      <span class="marca__texto">
+        <span class="marca__nombre">Administración</span>
+        <span class="marca__sub">Biblioteca Logidma</span>
+      </span>
+    </a>
+    <button class="btn btn--icono btn--linea" id="btn-tema" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Cambiar tema">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>
+      </svg>
+    </button>
+    <a class="btn btn--linea" href="/">Ver biblioteca</a>
+    <button class="btn btn--texto" id="btn-salir" type="button" hidden>Cerrar sesión</button>
+  </div>
+</header>
+
+<main>
+  <!-- ---------- acceso ---------- -->
+  <section class="acceso" id="acceso" hidden>
+    <form class="tarjeta acceso__tarjeta" id="form-acceso">
+      <h1>Acceso de administración</h1>
+      <p class="acceso__texto">Solo los administradores suben o retiran libros. Cualquiera puede leerlos.</p>
+      <div class="campo">
+        <label class="campo__label" for="clave">Contraseña</label>
+        <input class="entrada" id="clave" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="aviso aviso--error" id="error-acceso" hidden></div>
+      <button class="btn btn--primario" type="submit" id="btn-entrar">Entrar</button>
+    </form>
+  </section>
+
+  <!-- ---------- panel ---------- -->
+  <section id="panel" hidden>
+    <div class="contenedor">
+      <nav class="pestanas" role="tablist">
+        <button class="pestana" id="tab-subir" role="tab" aria-selected="true" aria-controls="vista-subir">Subir libros</button>
+        <button class="pestana" id="tab-catalogo" role="tab" aria-selected="false" aria-controls="vista-catalogo">Catálogo</button>
+      </nav>
+
+      <!-- subir -->
+      <div id="vista-subir" role="tabpanel" aria-labelledby="tab-subir">
+        <div class="soltar" id="soltar" tabindex="0" role="button" aria-label="Elegir archivos para subir">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 16V5m0 0L8 9m4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+          </svg>
+          <p class="soltar__titulo">Arrastra los libros aquí o haz clic para elegirlos</p>
+          <p class="soltar__formatos">PDF · EPUB · DOCX · ODT · RTF · TXT · HTML · MD</p>
+          <input type="file" id="archivos" multiple accept=".pdf,.epub,.docx,.odt,.rtf,.txt,.html,.htm,.md" hidden>
+        </div>
+        <div class="cola" id="cola"></div>
+      </div>
+
+      <!-- catálogo -->
+      <div id="vista-catalogo" role="tabpanel" aria-labelledby="tab-catalogo" hidden>
+        <div class="buscador buscador--ancho">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+          </svg>
+          <label class="visualmente-oculto" for="buscar-admin">Buscar libros</label>
+          <input class="entrada" id="buscar-admin" type="search" placeholder="Buscar en el catálogo" autocomplete="off">
+        </div>
+        <div class="lista" id="lista"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ---------- editor ---------- -->
+<dialog class="modal" id="editor">
+  <form method="dialog" class="modal__caja" id="form-editor">
+    <header class="modal__cabecera">
+      <h2 id="titulo-editor">Editar libro</h2>
+      <button class="btn btn--icono btn--texto" type="button" id="cerrar-editor" aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__cuerpo" id="cuerpo-editor"></div>
+    <footer class="modal__pie">
+      <button class="btn btn--linea" type="button" id="cancelar-editor">Cancelar</button>
+      <button class="btn btn--primario" type="button" id="guardar-editor">Guardar cambios</button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="brindis" id="brindis" role="status" aria-live="polite"></div>
+
+<script src="/js/comun.js"></script>
+<script type="module" src="/js/admin.js"></script>
+</body>
+</html>

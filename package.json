@@ -1,0 +1,26 @@
+{
+  "name": "biblioteca-logidma",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "dev": "npm run vendor && wrangler dev",
+    "deploy": "npm run vendor && wrangler deploy",
+    "cf-typegen": "wrangler types",
+    "migrar:local": "wrangler d1 migrations apply biblioteca-logidma --local",
+    "migrar": "wrangler d1 migrations apply biblioteca-logidma --remote"
+  },
+  "devDependencies": {
+    "wrangler": "4.127.1",
+    "typescript": "^5.6.0",
+    "pdfjs-dist": "^4.10.38",
+    "mammoth": "^1.9.0",
+    "jszip": "^3.10.1",
+    "marked": "^15.0.0",
+    "dompurify": "^3.2.0"
+  },
+  "dependencies": {
+    "hono": "^4.9.0"
+  }
+}

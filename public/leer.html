@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es" data-tema="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lector · Biblioteca Logidma</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/img/icono.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/estilo.css">
+<link rel="stylesheet" href="/css/lector.css">
+</head>
+<body class="cuerpo-lector">
+
+<header class="lector__barra" id="barra-superior">
+  <a class="btn btn--texto" href="/" aria-label="Volver al catálogo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M15 5 8 12l7 7"/>
+    </svg>
+    <span class="oculto-movil">Biblioteca</span>
+  </a>
+
+  <div class="lector__titulo">
+    <strong id="titulo-libro">Cargando…</strong>
+    <span id="autor-libro"></span>
+  </div>
+
+  <div class="lector__acciones">
+    <div class="grupo-tipo" role="group" aria-label="Tamaño del texto">
+      <button class="btn btn--texto btn--sm" id="texto-menos" type="button" aria-label="Reducir el texto">A−</button>
+      <button class="btn btn--texto btn--sm" id="texto-mas" type="button" aria-label="Agrandar el texto">A+</button>
+    </div>
+    <button class="btn btn--icono btn--linea" id="btn-tema" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Cambiar tema">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>
+      </svg>
+    </button>
+    <a class="btn btn--icono btn--linea" id="btn-descargar" href="#" download aria-label="Descargar el archivo original" title="Descargar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 4v11m0 0 4-4m-4 4-4-4"/><path d="M5 19h14"/>
+      </svg>
+    </a>
+  </div>
+</header>
+
+<main class="lector" id="lector">
+  <button class="paso paso--izq" id="anterior" type="button" aria-label="Página anterior">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg>
+  </button>
+
+  <div class="hoja" id="hoja">
+    <div class="hoja__cargando" id="cargando">
+      <div class="progreso"><span id="progreso-barra"></span></div>
+      <p id="progreso-texto">Abriendo el libro…</p>
+    </div>
+    <div class="hoja__flujo" id="flujo" hidden></div>
+    <canvas class="hoja__lienzo" id="lienzo" hidden></canvas>
+  </div>
+
+  <button class="paso paso--der" id="siguiente" type="button" aria-label="Página siguiente">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+  </button>
+</main>
+
+<footer class="lector__pie">
+  <button class="btn btn--sm btn--linea oculto-escritorio" id="anterior-movil" type="button">Anterior</button>
+  <label class="visualmente-oculto" for="deslizador">Ir a una página</label>
+  <input class="deslizador" id="deslizador" type="range" min="1" max="1" value="1" step="1">
+  <span class="lector__cuenta" id="cuenta" aria-live="polite">— / —</span>
+  <button class="btn btn--sm btn--linea oculto-escritorio" id="siguiente-movil" type="button">Siguiente</button>
+</footer>
+
+<div class="brindis" id="brindis" role="status" aria-live="polite"></div>
+
+<script src="/vendor/jszip.min.js"></script>
+<script src="/vendor/mammoth.browser.min.js"></script>
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/js/comun.js"></script>
+<script src="/js/formatos.js"></script>
+<script type="module" src="/js/lector.js"></script>
+</body>
+</html>
