@@ -13,6 +13,12 @@
      altura y el PDF sale minúsculo dentro de una caja de cero. */
   height: 100vh;
   height: 100dvh;
+  /* Y donde `dvh` no llega —navegadores dentro de una app, iOS antiguo— manda
+     esta, que el lector pone a `innerHeight` y mantiene al día. Allí `100vh` es
+     la ventana SIN las barras del navegador, así que el pie con el progreso
+     cae por debajo de la barra de abajo y no se ve. Solo se define cuando hace
+     falta: donde hay `dvh`, `dvh` es mejor, que se ajusta solo. */
+  height: var(--alto-ventana, 100dvh);
   overflow: hidden;
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -226,7 +232,11 @@
 }
 .lector__cuenta:hover { background: var(--surface-2); color: var(--text); }
 .lector__cuenta b { font-weight: 600; color: var(--text); }
-.lector__cuenta small { margin-inline-start: var(--s2); opacity: .75; }
+.lector__cuenta small {
+  margin-inline-start: var(--s2); opacity: .75;
+  /* Delante va un punto volado, que sin él «12 / 416 43 %» se lee como un solo número. */
+  padding-inline-start: var(--s2); border-inline-start: 1px solid var(--border);
+}
 
 .lector__ir {
   width: 5.5em; height: 30px; padding: 0 var(--s2);
@@ -238,7 +248,16 @@
 
 /* El deslizador se arrastra, no se recorre: sin esto el dedo se lo lleva la
    página en vez de mover el tirador. */
-.deslizador { touch-action: none; flex: 1; appearance: none; height: 4px; border-radius: var(--radius-full); background: var(--border); cursor: pointer; }
+.deslizador {
+  touch-action: none; flex: 1; appearance: none; height: 4px;
+  border-radius: var(--radius-full); cursor: pointer;
+  /* La pista se pinta hasta donde va la lectura. Un deslizador a secas solo
+     dice dónde está el tirador; relleno, la barra ES el progreso y se ve sin
+     leer el número —que es justo lo que se le pide a una barra de progreso—.
+     El corte va sin difuminar: dos paradas en el mismo punto. */
+  background:
+    linear-gradient(to right, var(--accent) 0 var(--avance, 0%), var(--border) var(--avance, 0%) 100%);
+}
 .deslizador::-webkit-slider-thumb {
   appearance: none; width: 16px; height: 16px; border-radius: 50%;
   background: var(--accent); border: 2px solid var(--bg); box-shadow: var(--sh-1); cursor: grab;
@@ -259,7 +278,6 @@
   .hoja__flujo { padding: var(--s5) var(--s4); }
   .lector__pie { padding: var(--s3) var(--s4); gap: var(--s3); }
   .lector__titulo strong { max-width: 24ch; }
-  .lector__cuenta small { display: none; }
   .hoja__pdf { padding: var(--s2); scrollbar-gutter: auto; }
 }
 
@@ -268,7 +286,10 @@
    informan —el nivel y el número de página— y el deslizador, que además es el
    camino sin gestos para quien navegue con el teclado. */
 @media (max-width: 560px) {
-  .lector__barra { padding: var(--s2); gap: var(--s2); }
+  /* Con el botón de compartir son cinco mandos en 390 px: se aprietan un poco
+     entre sí para que al título le queden unas letras más antes de cortarse. */
+  .lector__barra { padding: var(--s2); gap: var(--s1); }
+  .lector__acciones { gap: var(--s1); }
   .lector__titulo span { display: none; }
   .lector__titulo strong { font-size: var(--fs-sm); max-width: 100%; }
   /* Solo en un PDF: en un libro de texto esos botones son el tamaño de la
@@ -276,4 +297,8 @@
   .es-pdf #texto-menos, .es-pdf #texto-mas { display: none; }
   .lector__pie { padding: var(--s2) var(--s3); gap: var(--s3); }
   #anterior-movil, #siguiente-movil { display: none; }
+  /* El número y el porcentaje son lo que hay que leer: se les deja el sitio
+     que necesitan y lo que sobra se lo queda el deslizador. */
+  .lector__cuenta { padding-inline: var(--s1); font-size: var(--fs-xs); }
+  .lector__cuenta small { margin-inline-start: 6px; padding-inline-start: 6px; }
 }

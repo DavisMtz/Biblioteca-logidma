@@ -35,6 +35,9 @@ const Bib = (() => {
     });
   }
 
+  /* La puerta es `/entrar`, y no se manda a nadie de vuelta a ella. */
+  const enLaPuerta = () => /^\/entrar(\.html)?$/.test(location.pathname);
+
   async function api(ruta, opciones = {}) {
     const resp = await fetch(ruta, {
       credentials: 'same-origin',
@@ -46,8 +49,20 @@ const Bib = (() => {
     let datos = null;
     try { datos = await resp.json(); } catch { /* respuesta sin cuerpo */ }
     if (!resp.ok) {
+      /* La biblioteca está cerrada y a quien mira le falta la clave. En vez de
+         enseñarle un error que no le dice qué hacer, se le lleva a pedirla con
+         el sitio al que iba apuntado, para devolverlo ahí en cuanto entre. Así
+         un enlace a un libro concreto sigue llevando a ese libro. */
+      if (resp.status === 401 && datos && datos.codigo === 'acceso' && !enLaPuerta()) {
+        const destino = encodeURIComponent(location.pathname + location.search);
+        location.replace(`/entrar?destino=${destino}`);
+        // A propósito sin resolver: la página ya se está yendo y quien llamó no
+        // debe pintar un error de camino a la puerta.
+        return new Promise(() => {});
+      }
       const error = new Error((datos && datos.error) || `Error ${resp.status}`);
       error.status = resp.status;
+      error.codigo = datos && datos.codigo;
       throw error;
     }
     return datos;

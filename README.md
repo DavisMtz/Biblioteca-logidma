@@ -15,7 +15,12 @@ paginados, sin descargar nada.
   troceado en bloques y solo uno vive en la página a la vez.
 - **Los EPUB conservan su tipografía:** sangrías, centrados, versalitas, versos y
   saltos de capítulo salen como los dejó quien maquetó el libro.
-- **Marcador de lectura** por libro, con el tamaño de letra ajustable.
+- **Marcador de lectura** por libro, con el tamaño de letra ajustable, y una barra
+  abajo que dice por dónde vas.
+- **Compartir un libro:** el botón de la barra da un enlace que abre ESE libro,
+  por la hoja de compartir del teléfono o copiado al portapapeles.
+- **Abierta o con clave.** Desde `/admin` se decide si el enlace le basta a
+  cualquiera o hace falta además una clave, que se genera y se lee ahí mismo.
 - **Panel `/admin`:** subir (arrastrando o eligiendo), portada automática desde la
   primera página del PDF, edición de datos, borradores y borrado.
 - Tema claro y oscuro, y funciona igual en teléfono.
@@ -30,6 +35,7 @@ paginados, sin descargar nada.
 | Archivos de los libros | R2, bucket `biblioteca-logidma` |
 | Catálogo y marcadores | D1, base `biblioteca-logidma` (`migraciones/`) |
 | Portadas | Cloudinary (cloud `srz5sh9l`, carpeta `biblioteca/portadas`) |
+| Puerta cuando está cerrada | `public/entrar.html` + `public/js/entrar.js` |
 | Instalación como app | `public/manifest.webmanifest` + `public/sw.js` |
 
 Decisiones que no se deducen mirando el código:
@@ -89,6 +95,47 @@ Decisiones que no se deducen mirando el código:
   porque R2 pide método de pago para activarse. Con R2 ya activo se mudaron los
   7 libros que había y KV salió del proyecto: R2 resuelve rangos por su cuenta,
   no tiene el tope de 25 MiB por valor y da diez veces más espacio.
+- **Quién entra se decide con una clave común, no con cuentas.** La biblioteca
+  se reparte entre conocidos: llevar altas, bajas y contraseñas por persona para
+  eso sobra. En `/admin` → Seguridad se elige entre abierta (quien tenga el
+  enlace, lee) y con clave, y esa clave es una sola para todos. Nace abierta a
+  propósito: cerrarla en la migración habría dejado fuera de golpe a quien ya
+  estaba leyendo.
+
+- **La clave de lectura se guarda recuperable, y la de administración no.** Son
+  cosas distintas: la de administración protege el poder subir y borrar, no se
+  reparte nunca y va en resumen PBKDF2. La de lectura es el código de la puerta,
+  y quien administra tiene que poder volver a leerla dentro de tres meses para
+  dársela a alguien más; con un resumen habría que cambiarla cada vez, echando a
+  todos los demás. A cambio va cifrada con AES-GCM bajo una clave derivada de
+  `SESSION_SECRET`, que no vive en la base: una copia de la base sin el secreto
+  del Worker no la enseña. Y solo se devuelve a una sesión de administrador.
+
+- **Cada puerta tiene su galleta, y las dos llevan su generación dentro.** La de
+  administración dura 12 h; la de lector, 30 días, porque no abre nada —solo
+  demuestra que en su día se supo la clave— y pedírsela cada doce horas a quien
+  va por la mitad de un libro sería un castigo. El tipo (`admin` o `lector`) va
+  firmado dentro, así que una no puede hacerse pasar por la otra. Cambiar la
+  clave o el modo sube `generacion_lectura` y tira las sesiones abiertas sin
+  guardar una lista de ellas; guardar sin cambiar nada no las toca, que echar a
+  todo el mundo por pulsar «Guardar» sería absurdo.
+
+- **Quien administra entra siempre.** Si no, cerrar la biblioteca dejaría fuera
+  de su propio panel a quien la cerró.
+
+- **El navegador va solo a pedir la clave.** Con la biblioteca cerrada, la API
+  responde `401` con `codigo: "acceso"`, y `Bib.api` lleva a `/entrar` apuntando
+  a dónde se iba. Así un enlace a un libro concreto sigue llevando a ese libro
+  después de escribir la clave, en vez de soltar a la gente en la portada.
+
+- **El progreso se lee en el teléfono.** La pista del deslizador se pinta hasta
+  donde va la lectura —una barra de progreso se mira, no se lee— y el porcentaje
+  se enseña también en pantalla estrecha, donde antes lo escondía una media
+  query. Y la altura de la hoja se fija a mano donde no hay `dvh`: allí `100vh`
+  mide la ventana SIN las barras del navegador, y el pie con el progreso se
+  quedaba por debajo de la de abajo, invisible. Eso pasa justo en los
+  navegadores dentro de una app, que es por donde llega un enlace compartido.
+
 - **La portada no pasa por el Worker:** el navegador pide una firma
   (`/api/portada/firma`) y sube directo a Cloudinary. El `api_secret` no sale del
   servidor y el destino lo decide él, no el cliente.
@@ -133,12 +180,25 @@ CLOUDINARY_API_SECRET="…"
 
 ## Si se olvida la contraseña
 
+### La de administración
+
 No hay correo de recuperación: se borra el hash y vuelve a valer la de arranque
 (la de `secrets.json`). De paso sube la generación, así cae cualquier sesión que
 siguiera abierta:
 
 ```bash
 npx wrangler d1 execute biblioteca-logidma --remote --command   "DELETE FROM ajustes WHERE clave='clave_admin';    UPDATE ajustes SET valor = CAST(valor AS INTEGER) + 1 WHERE clave='generacion';"
+```
+
+### La de lectura
+
+Se lee y se cambia en `/admin` → Seguridad. Si se perdió el acceso al panel,
+esto la deja como estaba antes de cerrarla —abierta para todos— sin tocar nada
+más:
+
+```bash
+npx wrangler d1 execute biblioteca-logidma --remote --command \
+  "UPDATE ajustes SET valor = 'publico' WHERE clave = 'acceso';"
 ```
 
 ## Desplegar

@@ -21,6 +21,7 @@ async function comprobarSesion() {
   $('btn-salir').hidden = !admin;
   if (admin) {
     cargarCatalogo();
+    cargarAcceso();
     Bib.animar((tl) => {
       tl.from('.pestanas', { y: -10, opacity: 0, duration: 0.4 }, 0)
         .from('.soltar', { y: 16, opacity: 0, scale: 0.99, duration: 0.5 }, 0.05);
@@ -58,6 +59,89 @@ $('form-acceso').addEventListener('submit', async (e) => {
 $('btn-salir').addEventListener('click', async () => {
   await Bib.api('/api/sesion', { method: 'DELETE' });
   location.reload();
+});
+
+/* --------------------------- quién puede entrar --------------------------- */
+
+/* La biblioteca se reparte por su enlace. Aquí se elige si ese enlace basta o
+   hace falta además una clave: la misma para todos, escrita a mano por quien
+   administra y compartida con quien quiera que lea. No hay cuentas porque no
+   hay usuarios; hay conocidos. */
+
+const campoClaveLectura = $('campo-clave-lectura');
+const claveLectura = $('clave-lectura');
+
+const modoElegido = () =>
+  (document.querySelector('input[name="modo-acceso"]:checked') || {}).value || 'publico';
+
+function pintarModo() {
+  // El campo de la clave solo se enseña cuando va a servir de algo.
+  campoClaveLectura.hidden = modoElegido() !== 'clave';
+}
+
+for (const radio of document.querySelectorAll('input[name="modo-acceso"]')) {
+  radio.addEventListener('change', pintarModo);
+}
+
+async function cargarAcceso() {
+  try {
+    const { modo, clave } = await Bib.api('/api/acceso');
+    const radio = document.querySelector(`input[name="modo-acceso"][value="${modo}"]`);
+    if (radio) radio.checked = true;
+    claveLectura.value = clave || '';
+    pintarModo();
+  } catch { /* si no se puede leer, se queda como estaba */ }
+}
+
+$('btn-generar').addEventListener('click', async () => {
+  try {
+    const { clave } = await Bib.api('/api/acceso/sugerencia');
+    claveLectura.value = clave;
+    claveLectura.focus();
+    claveLectura.select();
+    // Sin guardar todavía: la clave nueva no echa a nadie hasta pulsar Guardar.
+    Bib.brindis('Clave nueva lista. Pulsa Guardar para usarla.');
+  } catch (fallo) {
+    Bib.brindis(fallo.message, 'error');
+  }
+});
+
+$('btn-copiar').addEventListener('click', async () => {
+  const valor = claveLectura.value.trim();
+  if (!valor) return Bib.brindis('Aún no hay clave que copiar.', 'error');
+  try {
+    await navigator.clipboard.writeText(valor);
+    Bib.brindis('Clave copiada');
+  } catch {
+    claveLectura.select();
+    Bib.brindis('Cópiala a mano: ya está seleccionada.', 'error');
+  }
+});
+
+$('form-acceso-lectura').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const error = $('error-acceso-lectura');
+  const boton = $('btn-guardar-acceso');
+  const modo = modoElegido();
+  error.hidden = true;
+  boton.disabled = true;
+  boton.textContent = 'Guardando…';
+  try {
+    const datos = await Bib.api('/api/acceso', {
+      method: 'PUT',
+      body: JSON.stringify({ modo, clave: claveLectura.value.trim() }),
+    });
+    claveLectura.value = datos.clave || '';
+    Bib.brindis(modo === 'clave'
+      ? 'Biblioteca cerrada: ahora hace falta la clave.'
+      : 'Biblioteca abierta: entra cualquiera con el enlace.');
+  } catch (fallo) {
+    error.textContent = fallo.message;
+    error.hidden = false;
+  } finally {
+    boton.disabled = false;
+    boton.textContent = 'Guardar';
+  }
 });
 
 /* ------------------------------ pestañas ------------------------------ */

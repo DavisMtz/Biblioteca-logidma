@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es" data-tema="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar · Biblioteca Logidma</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/img/icono.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/icono-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf8f5">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14120f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Biblioteca">
+<link rel="stylesheet" href="/css/estilo.css">
+<link rel="stylesheet" href="/css/catalogo.css">
+<link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+
+<header class="cabecera">
+  <div class="contenedor cabecera__fila">
+    <span class="marca">
+      <svg class="marca__icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H11v18H5.5A1.5 1.5 0 0 1 4 19.5z"/>
+        <path d="M11 3h7.5A1.5 1.5 0 0 1 20 4.5v15a1.5 1.5 0 0 1-1.5 1.5H11z"/>
+        <path d="M7.5 7.5h1M7.5 11h1M14.5 7.5h2M14.5 11h2"/>
+      </svg>
+      <span class="marca__texto">
+        <span class="marca__nombre">Biblioteca</span>
+        <span class="marca__sub">Logidma</span>
+      </span>
+    </span>
+    <span style="flex:1"></span>
+    <button class="btn btn--icono btn--linea" id="btn-tema" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Cambiar tema">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <section class="acceso">
+    <form class="tarjeta acceso__tarjeta" id="form-entrar">
+      <h1>Esta biblioteca es privada</h1>
+      <p class="acceso__texto">Escribe la clave que te pasaron. Se pide una sola vez:
+        este dispositivo la recuerda durante un mes.</p>
+      <div class="campo">
+        <label class="campo__label" for="clave">Clave</label>
+        <input class="entrada" id="clave" type="password" autocomplete="current-password"
+               autocapitalize="off" autocorrect="off" spellcheck="false" required>
+      </div>
+      <div class="aviso aviso--error" id="error-entrar" hidden></div>
+      <button class="btn btn--primario" type="submit" id="btn-entrar">Entrar</button>
+    </form>
+  </section>
+</main>
+
+<div class="brindis" id="brindis" role="status" aria-live="polite"></div>
+
+<script src="/vendor/gsap.min.js"></script>
+<script src="/js/comun.js"></script>
+<script src="/js/entrar.js"></script>
+</body>
+</html>

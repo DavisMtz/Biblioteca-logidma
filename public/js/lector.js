@@ -21,6 +21,21 @@ const btnSiguiente = $('siguiente');
 
 const idLibro = new URLSearchParams(location.search).get('id') || '';
 
+/* La hoja ocupa la ventana exacta y el pie va pegado abajo. Donde hay `dvh` eso
+   lo resuelve el CSS solo. Donde no —navegadores dentro de una app, iOS
+   antiguo— `100vh` mide la ventana SIN las barras del navegador, así que el pie
+   con el progreso se queda por debajo de la barra de abajo y no se ve. Ahí se
+   le da la medida a mano y se mantiene al día. */
+function vigilarLaVentana() {
+  if (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('height', '100dvh')) return;
+  const poner = () => document.documentElement.style
+    .setProperty('--alto-ventana', `${window.innerHeight}px`);
+  poner();
+  addEventListener('resize', poner);
+  addEventListener('orientationchange', () => setTimeout(poner, 250));
+}
+vigilarLaVentana();
+
 let libro = null;
 let modo = 'texto';        // texto | pdf
 let pagina = 1;
@@ -762,6 +777,8 @@ async function ir(destino) {
 /** El porcentaje dice de un vistazo cuánto queda; el número solo, no. */
 function pintarCuenta(n) {
   const avance = total > 1 ? Math.round(((n - 1) / (total - 1)) * 100) : 100;
+  // La pista del deslizador se pinta hasta aquí: leer el número es opcional.
+  deslizador.style.setProperty('--avance', `${avance}%`);
   // Mientras se mide el resto del libro el total es una estimación, y decirlo a
   // secas sería mentir: se marca con una tilde hasta que la cuenta es firme.
   const aproximado = modo === 'texto' && !medicionCompleta;
@@ -1031,6 +1048,44 @@ function reajustar() {
     remaquetar();
   }, 180);
 }
+
+/* ---------------- compartir ---------------- */
+
+/* El enlace lleva a ESTE libro, no a la biblioteca: quien lo reciba abre lo que
+   se le quiso enseñar. La ruta va sin `.html`, que es la forma en que el Worker
+   la sirve; con la extensión responde una redirección y el enlace se ve peor. */
+const enlaceDelLibro = () => `${location.origin}/leer?id=${encodeURIComponent(idLibro)}`;
+
+async function compartir() {
+  const url = enlaceDelLibro();
+  const datos = {
+    title: libro.titulo,
+    text: [libro.titulo, libro.autor].filter(Boolean).join(' · '),
+    url,
+  };
+
+  // En el teléfono, la hoja de compartir del sistema: así el enlace va derecho
+  // a WhatsApp o al correo sin pasar por el portapapeles.
+  if (navigator.share && (!navigator.canShare || navigator.canShare(datos))) {
+    try {
+      await navigator.share(datos);
+      return;
+    } catch (error) {
+      // Cerrar la hoja no es un fallo: si se arrepintió, no hay nada que hacer.
+      if (error && error.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    Bib.brindis('Enlace copiado');
+  } catch {
+    // Sin permiso para el portapapeles se le enseña el enlace ya seleccionado:
+    // copiar a mano siempre se puede.
+    window.prompt('Copia el enlace de este libro:', url);
+  }
+}
+
+$('btn-compartir').addEventListener('click', compartir);
 
 /* ---------------- movimiento ---------------- */
 
