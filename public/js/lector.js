@@ -314,8 +314,7 @@ async function dibujarPagina(turno) {
   tareaRender = tarea;
 
   // La cola espera de verdad: hasta que este dibujo suelte el lienzo, el
-  // siguiente no puede empezar. Pero con un tope, y cancelando si se agota: un
-  // dibujo que se quedara colgado dejaría la cola cerrada para siempre.
+  // siguiente no puede empezar.
   let vivo = true;
   const fin = tarea.promise.then(
     () => { vivo = false; },
@@ -324,11 +323,19 @@ async function dibujarPagina(turno) {
       if (error?.name !== 'RenderingCancelledException') console.error(error);
     },
   );
-  await Promise.race([fin, new Promise((r) => setTimeout(r, 8000))]);
-  if (vivo) {
-    try { tarea.cancel(); } catch { /* justo terminó */ }
-    await fin;
+
+  if (document.hidden) {
+    // Con la pestaña de fondo los fotogramas están congelados y esto no
+    // terminaría nunca: se le da un margen y se cancela, para que la cola siga.
+    // Al volver a mirar la pantalla se rehace el dibujo.
+    await Promise.race([fin, new Promise((r) => setTimeout(r, 8000))]);
+    if (vivo) { try { tarea.cancel(); } catch { /* justo terminó */ } }
   }
+  // A la vista se espera lo que haga falta: un escaneo grande en un teléfono
+  // lento tarda, y cortarlo por reloj dejaría la hoja en blanco sin motivo. Si
+  // la pestaña se va de fondo a mitad, la desatasca la siguiente petición, que
+  // cancela esta desde fuera de la cola.
+  await fin;
   if (tareaRender === tarea) tareaRender = null;
 }
 
