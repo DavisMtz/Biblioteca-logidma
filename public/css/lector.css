@@ -85,7 +85,7 @@
   /* Una ilustración más alta que la columna abre un hueco enorme antes de ella. */
   max-height: 62vh; object-fit: contain;
 }
-.hoja__flujo :first-child { margin-block-start: 0; }
+.hoja__flujo > :first-child { margin-block-start: 0; }
 .hoja__flujo blockquote {
   margin: 1em 0; padding-left: var(--s4);
   border-left: 3px solid var(--accent-sua); color: var(--text-mut); font-style: italic;
