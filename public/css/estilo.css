@@ -199,6 +199,31 @@ a { color: var(--accent); }
 }
 .brindis[data-visible="1"] { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* ---------- letrero de instalación ---------- */
+
+.instalar {
+  position: fixed; z-index: 95; left: 50%; bottom: var(--s4);
+  width: min(560px, calc(100vw - var(--s4) * 2));
+  display: flex; align-items: center; gap: var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--sh-3);
+  transform: translateX(-50%) translateY(16px); opacity: 0;
+  transition: opacity .25s var(--ease), transform .25s var(--ease);
+}
+.instalar[data-visible="1"] { opacity: 1; transform: translateX(-50%) translateY(0); }
+.instalar__icono { width: 28px; height: 28px; flex: none; color: var(--accent); }
+.instalar__texto { display: grid; gap: 2px; min-width: 0; }
+.instalar__texto strong { font-size: var(--fs-sm); }
+.instalar__texto span { font-size: var(--fs-xs); color: var(--text-mut); }
+.instalar__botones { margin-inline-start: auto; display: flex; gap: var(--s2); flex: none; }
+
+@media (max-width: 560px) {
+  .instalar { flex-wrap: wrap; }
+  .instalar__botones { width: 100%; margin-inline-start: 0; }
+  .instalar__botones .btn { flex: 1; justify-content: center; }
+}
+
 /* ---------- etiquetas ---------- */
 
 .etiqueta {

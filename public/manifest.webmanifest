@@ -1,0 +1,21 @@
+{
+  "name": "Biblioteca Logidma",
+  "short_name": "Biblioteca",
+  "description": "Donde el conocimiento es compartido. Lecturas en todo tipo de formatos.",
+  "lang": "es",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#faf8f5",
+  "theme_color": "#8f4f16",
+  "categories": ["books", "education", "productivity"],
+  "icons": [
+    { "src": "/img/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/img/icono-mascara-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/img/icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
