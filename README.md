@@ -1,7 +1,8 @@
 # Biblioteca Logidma
 
-Biblioteca virtual del equipo: los administradores suben documentos y cualquiera
-los lee en el navegador, paginados, sin descargar nada.
+Biblioteca virtual del equipo: donde el conocimiento es compartido. Los
+administradores suben documentos y cualquiera los lee en el navegador,
+paginados, sin descargar nada.
 
 **Producción:** https://biblioteca.logidma.com
 

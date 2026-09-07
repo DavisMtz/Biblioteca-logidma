@@ -57,8 +57,7 @@ function pintarVacio(hayFiltro) {
       <h2>${hayFiltro ? 'Sin resultados' : 'La estantería está vacía'}</h2>
       <p>${hayFiltro
         ? 'Ningún libro coincide con esa búsqueda. Prueba con otras palabras o quita el filtro de categoría.'
-        : 'Todavía no se ha subido ningún documento. Entra a <strong>Administrar</strong> para subir el primero.'}</p>
-      ${hayFiltro ? '' : '<a class="btn btn--primario" href="/admin">Subir el primer libro</a>'}
+        : 'Todavía no hay documentos publicados.'}</p>
     </div>`;
 }
 
@@ -79,7 +78,8 @@ async function cargar() {
       rejilla.innerHTML = datos.libros.map(tarjeta).join('');
       animarRejilla();
     }
-    if (datos.admin) document.getElementById('texto-admin').textContent = 'Panel';
+    // El enlace al panel solo se enseña a quien ya entró.
+    document.getElementById('enlace-admin').hidden = !datos.admin;
     if (primeraCarga) { primeraCarga = false; animarEntrada(); }
   } catch (error) {
     rejilla.innerHTML = `<div class="aviso aviso--error" style="grid-column:1/-1">

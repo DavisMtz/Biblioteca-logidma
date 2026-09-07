@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Biblioteca Logidma</title>
-<meta name="description" content="Biblioteca virtual de Logidma: consulta y lee los documentos del equipo en el navegador.">
+<meta name="description" content="Biblioteca Logidma: donde el conocimiento es compartido. Lecturas en todo tipo de formatos, que se abren en el navegador.">
 <link rel="icon" href="/img/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/estilo.css">
 <link rel="stylesheet" href="/css/catalogo.css">
@@ -39,20 +39,17 @@
       </svg>
     </button>
 
-    <a class="btn btn--linea" id="enlace-admin" href="/admin">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="4" y="10.5" width="16" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>
-      </svg>
-      <span id="texto-admin">Administrar</span>
-    </a>
+    <!-- El acceso al panel no se anuncia: /admin se abre por su enlace. Solo
+         aparece aquí cuando ya hay sesión de administrador. -->
+    <a class="btn btn--linea" id="enlace-admin" href="/admin" hidden>Panel</a>
   </div>
 </header>
 
 <main>
   <section class="portada contenedor">
     <div class="portada__texto">
-      <h1>La estantería del equipo</h1>
-      <p class="portada__sub">Manuales, procedimientos y lecturas de Logidma. Se abren aquí mismo, sin descargar nada.</p>
+      <h1>Donde el conocimiento es compartido</h1>
+      <p class="portada__sub">Lecturas en todo tipo de formatos.</p>
     </div>
     <dl class="portada__cifras" id="cifras" aria-live="polite">
       <div><dt>Libros</dt><dd id="cifra-libros">—</dd></div>
