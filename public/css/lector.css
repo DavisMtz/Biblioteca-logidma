@@ -21,6 +21,10 @@
      la hoja se descoloca y lo que sobra se pierde por el borde. */
   grid-template-columns: minmax(0, 1fr);
   background: var(--surface-2);
+  /* El pellizco es del lector, no del navegador: también sobre la barra y el
+     pie. El del navegador estira el dibujo ya hecho y lo deja borroso, que es
+     justo lo que se quería evitar. */
+  touch-action: pan-x pan-y;
 }
 
 /* ---------- barra superior ---------- */
@@ -212,7 +216,9 @@
   border-radius: var(--radius-sm);
 }
 
-.deslizador { flex: 1; appearance: none; height: 4px; border-radius: var(--radius-full); background: var(--border); cursor: pointer; }
+/* El deslizador se arrastra, no se recorre: sin esto el dedo se lo lleva la
+   página en vez de mover el tirador. */
+.deslizador { touch-action: none; flex: 1; appearance: none; height: 4px; border-radius: var(--radius-full); background: var(--border); cursor: pointer; }
 .deslizador::-webkit-slider-thumb {
   appearance: none; width: 16px; height: 16px; border-radius: 50%;
   background: var(--accent); border: 2px solid var(--bg); box-shadow: var(--sh-1); cursor: grab;
