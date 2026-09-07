@@ -27,16 +27,8 @@
     }
   ],
 
-  // Dos almacenes, los dos gratuitos: los libros nuevos van a KV (1 GB) hasta
-  // que este llega a 900 MB, y a partir de ahí al bucket de R2 (10 GB). Qué
-  // libro está en cuál lo dice la columna `libros.almacen`.
-  "kv_namespaces": [
-    {
-      "binding": "ARCHIVOS",
-      "id": "a07ed8adbd2649b8943dc048493c91a2"
-    }
-  ],
-
+  // Los archivos de los libros viven en R2: 10 GB gratis al mes, rangos
+  // nativos y sin el tope de 25 MiB por valor que tenía KV.
   "r2_buckets": [
     {
       "binding": "LIBROS_R2",

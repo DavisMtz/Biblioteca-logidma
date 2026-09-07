@@ -22,46 +22,23 @@ los lee en el navegador, paginados, sin descargar nada.
 | --- | --- |
 | Worker (API + servido) | `src/index.ts`, Hono sobre Cloudflare Workers |
 | Interfaz | `public/` — HTML, CSS y JS sin compilar, servido como Static Assets |
-| Archivos de los libros | Workers KV (`biblioteca-archivos`) hasta 900 MB, y R2 (`biblioteca-logidma`) a partir de ahí |
+| Archivos de los libros | R2, bucket `biblioteca-logidma` |
 | Catálogo y marcadores | D1, base `biblioteca-logidma` (`migraciones/`) |
 | Portadas | Cloudinary (cloud `srz5sh9l`, carpeta `biblioteca/portadas`) |
 
 Decisiones que no se deducen mirando el código:
 
-- **Dos almacenes, los dos gratuitos, con desbordamiento automático.** Un libro
-  nuevo va a **KV** mientras la suma de lo guardado ahí más el archivo no pase de
-  **900 MB**; en cuanto lo pasa, va a **R2** (10 GB). Lo decide `elegirAlmacen()`
-  con un `SUM(tamano)` sobre D1, y queda anotado en `libros.almacen`, que es lo
-  que luego elige el camino al servir y al borrar. Los libros ya guardados no se
-  mueven: cada uno se sirve desde donde esté.
-- **El tamaño que manda el navegador solo sirve para elegir almacén.** El que se
-  guarda en el catálogo lo cuenta el servidor sumando las partes que recibe, así
-  que un cliente no puede falsearlo.
-- Topes de cada uno: KV, 1 GB por namespace, 25 MiB por valor y 1000 escrituras
-  al día; R2, 10 GB, 1 M de escrituras y 10 M de lecturas al mes, sin coste de
-  descarga. Las partes de 5 MiB valen para los dos (R2 exige que todas midan lo
-  mismo salvo la última, y al menos 5 MiB).
-- **Cada libro se guarda troceado** en claves `libro:<id>:<n>` de 5 MiB (el tope
-  de KV por valor es 25 MiB). Como todas las partes miden lo mismo salvo la
-  última, `GET /archivo/:id` calcula qué partes tocar y responde rangos (`206`),
-  que es lo que PDF.js necesita para abrir un libro grande sin bajarlo entero.
-  El tamaño del archivo lo calcula el servidor, no lo declara el navegador.
-- **KV es de consistencia eventual**: al leer una parte se reintenta tres veces
-  antes de darla por perdida, porque una recién escrita puede tardar en verse.
-- **Todo el tráfico de archivos pasa por el Worker.** El endpoint S3 de R2
-  (`*.r2.cloudflarestorage.com`) está además bloqueado en la red de la oficina,
-  así que las URLs prefirmadas tampoco eran una opción.
-- **Las subidas van por partes** (`/api/subir/iniciar` → `parte` → `completar`).
-  Un Worker no acepta cuerpos de más de 100 MB de una vez.
-- **La contraseña de administración no vive en el secreto del Worker**, porque un
-  Worker no puede reescribir sus propios secretos. Vive en D1 como hash PBKDF2
-  (SHA-256, 100 000 iteraciones —el techo medido en Workers— y sal de 16 bytes).
-  `ADMIN_PASSWORD` es solo la **contraseña de arranque**: vale mientras no exista
-  la fila `ajustes.clave_admin` y deja de servir en cuanto se cambia una vez, para
-  que no quede una puerta trasera atada a un valor que anda en varios sitios.
-- **Al cambiar la contraseña caen todas las sesiones.** La cookie lleva dentro un
-  número de generación que sube con cada cambio; las cookies viejas dejan de
-  validar sin necesidad de guardar una lista de sesiones.
+- **Los archivos viven en R2** (10 GB gratis al mes, sin coste de descarga).
+  Cada libro se sube por partes de 5 MiB —R2 exige que todas midan lo mismo
+  salvo la última, y al menos 5 MiB— y `GET /archivo/:id` deja que el propio
+  bucket resuelva los rangos (`206`), que es lo que PDF.js necesita para abrir un
+  libro grande sin bajarlo entero.
+- **El tamaño que se guarda en el catálogo lo cuenta el servidor** sumando las
+  partes que recibe, no lo declara el navegador.
+- Hasta el 07/09/2026 los archivos vivían en Workers KV, troceados a mano,
+  porque R2 pide método de pago para activarse. Con R2 ya activo se mudaron los
+  7 libros que había y KV salió del proyecto: R2 resuelve rangos por su cuenta,
+  no tiene el tope de 25 MiB por valor y da diez veces más espacio.
 - **La portada no pasa por el Worker:** el navegador pide una firma
   (`/api/portada/firma`) y sube directo a Cloudinary. El `api_secret` no sale del
   servidor y el destino lo decide él, no el cliente.
