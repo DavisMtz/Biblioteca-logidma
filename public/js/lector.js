@@ -154,6 +154,13 @@ async function abrirPdf() {
   await pintarPdf();
   pintarNivelZoom();
   vigilarHueco();
+
+  // Con la pestaña de fondo, Chrome congela los fotogramas y el dibujo de
+  // PDF.js no llega a terminar; se acaba cancelando por el tope. Al volver a
+  // mirar la pantalla se rehace, para no encontrarse una hoja en blanco.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && modo === 'pdf') pintarPdf();
+  });
 }
 
 /** El hueco de verdad, sin su relleno, que en el teléfono no es el del escritorio. */
@@ -305,15 +312,24 @@ async function dibujarPagina(turno) {
 
   const tarea = hojaPdf.render({ canvasContext: lienzo.getContext('2d'), viewport: vista });
   tareaRender = tarea;
-  // La cola sí espera al final de verdad: hasta que este dibujo suelte el
-  // lienzo, el siguiente no puede empezar.
-  try {
-    await tarea.promise;
-  } catch (error) {
-    if (error?.name !== 'RenderingCancelledException') console.error(error);
-  } finally {
-    if (tareaRender === tarea) tareaRender = null;
+
+  // La cola espera de verdad: hasta que este dibujo suelte el lienzo, el
+  // siguiente no puede empezar. Pero con un tope, y cancelando si se agota: un
+  // dibujo que se quedara colgado dejaría la cola cerrada para siempre.
+  let vivo = true;
+  const fin = tarea.promise.then(
+    () => { vivo = false; },
+    (error) => {
+      vivo = false;
+      if (error?.name !== 'RenderingCancelledException') console.error(error);
+    },
+  );
+  await Promise.race([fin, new Promise((r) => setTimeout(r, 8000))]);
+  if (vivo) {
+    try { tarea.cancel(); } catch { /* justo terminó */ }
+    await fin;
   }
+  if (tareaRender === tarea) tareaRender = null;
 }
 
 /* Letras invisibles encima del dibujo: dejan seleccionar, copiar y buscar con
