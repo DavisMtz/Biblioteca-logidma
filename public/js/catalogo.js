@@ -6,6 +6,7 @@ const buscar = document.getElementById('buscar');
 
 let categoriaActiva = '';
 let ultimaBusqueda = '';
+let primeraCarga = true;
 
 function esqueletos(n = 10) {
   rejilla.innerHTML = Array.from({ length: n }, () => `
@@ -68,12 +69,18 @@ async function cargar() {
   if (categoriaActiva) parametros.set('categoria', categoriaActiva);
   try {
     const datos = await Bib.api(`/api/libros?${parametros}`);
-    document.getElementById('cifra-libros').textContent = datos.libros.length;
-    document.getElementById('cifra-categorias').textContent = datos.categorias.length;
+    Bib.contar(document.getElementById('cifra-libros'), datos.libros.length);
+    Bib.contar(document.getElementById('cifra-categorias'), datos.categorias.length);
     pintarFiltros(datos.categorias);
-    if (!datos.libros.length) pintarVacio(Boolean(ultimaBusqueda || categoriaActiva));
-    else rejilla.innerHTML = datos.libros.map(tarjeta).join('');
+    if (!datos.libros.length) {
+      pintarVacio(Boolean(ultimaBusqueda || categoriaActiva));
+      Bib.animar((tl) => tl.from('.vacio > *', { y: 14, opacity: 0, stagger: 0.06 }));
+    } else {
+      rejilla.innerHTML = datos.libros.map(tarjeta).join('');
+      animarRejilla();
+    }
     if (datos.admin) document.getElementById('texto-admin').textContent = 'Panel';
+    if (primeraCarga) { primeraCarga = false; animarEntrada(); }
   } catch (error) {
     rejilla.innerHTML = `<div class="aviso aviso--error" style="grid-column:1/-1">
       No se pudo cargar el catálogo: ${Bib.escapar(error.message)}</div>`;
@@ -96,6 +103,45 @@ buscar.addEventListener('input', () => {
     ultimaBusqueda = buscar.value.trim();
     cargar();
   }, 250);
+});
+
+/* ---------------- movimiento ---------------- */
+
+/** Los lomos entran escalonados, como si se colocaran en la estantería. */
+function animarRejilla() {
+  const tarjetas = [...rejilla.querySelectorAll('.libro')].slice(0, 14);
+  if (!tarjetas.length) return;
+  Bib.animar((tl) => {
+    tl.from(tarjetas, {
+      y: 20, opacity: 0, scale: 0.97,
+      duration: 0.45, stagger: 0.045,
+      clearProps: 'transform,opacity',
+    });
+  });
+}
+
+/** Entrada de la página: cabecera, titular y filtros. Solo la primera vez. */
+function animarEntrada() {
+  Bib.animar((tl) => {
+    tl.from('.marca', { x: -14, opacity: 0, duration: 0.45 }, 0)
+      .from('.buscador, .cabecera .btn', { y: -8, opacity: 0, stagger: 0.05, duration: 0.4 }, 0.05)
+      .from('.portada h1', { y: 22, opacity: 0, duration: 0.6 }, 0.1)
+      .from('.portada__sub', { y: 14, opacity: 0, duration: 0.5 }, 0.2)
+      .from('.portada__cifras > div', { y: 14, opacity: 0, stagger: 0.08, duration: 0.5 }, 0.25)
+      .from('.filtro', { y: 10, opacity: 0, stagger: 0.03, duration: 0.35, clearProps: 'transform,opacity' }, 0.3);
+  });
+}
+
+/* Al pulsar una tarjeta, se hunde un poco: el clic se siente antes de navegar. */
+rejilla.addEventListener('pointerdown', (e) => {
+  const libro = e.target.closest('.libro');
+  if (!libro || Bib.sinMovimiento()) return;
+  gsap.to(libro, { scale: 0.975, duration: 0.12, ease: 'power2.out' });
+  // clearProps al soltar: sin eso queda un transform en línea y el hover del
+  // CSS ya no puede mover nada.
+  const soltar = () => gsap.to(libro, { scale: 1, duration: 0.25, ease: 'power2.out', clearProps: 'transform' });
+  libro.addEventListener('pointerup', soltar, { once: true });
+  libro.addEventListener('pointerleave', soltar, { once: true });
 });
 
 esqueletos();

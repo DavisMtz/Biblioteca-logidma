@@ -16,6 +16,7 @@ const archivos = [
   ['node_modules/jszip/dist/jszip.min.js', 'jszip.min.js'],
   ['node_modules/marked/marked.min.js', 'marked.min.js'],
   ['node_modules/dompurify/dist/purify.min.js', 'purify.min.js'],
+  ['node_modules/gsap/dist/gsap.min.js', 'gsap.min.js'],
 ];
 
 await rm(destino, { recursive: true, force: true });

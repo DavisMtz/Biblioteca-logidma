@@ -19,8 +19,19 @@ async function comprobarSesion() {
   acceso.hidden = admin;
   panel.hidden = !admin;
   $('btn-salir').hidden = !admin;
-  if (admin) cargarCatalogo();
-  else $('clave').focus();
+  if (admin) {
+    cargarCatalogo();
+    Bib.animar((tl) => {
+      tl.from('.pestanas', { y: -10, opacity: 0, duration: 0.4 }, 0)
+        .from('.soltar', { y: 16, opacity: 0, scale: 0.99, duration: 0.5 }, 0.05);
+    });
+  } else {
+    $('clave').focus();
+    Bib.animar((tl) => tl.from('.acceso__tarjeta', {
+      y: 18, opacity: 0, scale: 0.98, duration: 0.5,
+      clearProps: 'transform,opacity',
+    }));
+  }
 }
 
 $('form-acceso').addEventListener('submit', async (e) => {
@@ -57,6 +68,9 @@ function pestana(activa) {
   $('tab-catalogo').setAttribute('aria-selected', String(!esSubir));
   $('vista-subir').hidden = !esSubir;
   $('vista-catalogo').hidden = esSubir;
+  Bib.animar((tl) => tl.from(esSubir ? '#vista-subir' : '#vista-catalogo', {
+    y: 10, opacity: 0, duration: 0.35, clearProps: 'transform,opacity',
+  }));
   if (!esSubir) cargarCatalogo();
 }
 $('tab-subir').addEventListener('click', () => pestana('subir'));
@@ -90,7 +104,12 @@ function encolar(archivos) {
       Bib.brindis(`«${archivo.name}» no es un formato admitido`, 'error');
       continue;
     }
-    cola.prepend(crearFicha(archivo));
+    const ficha = crearFicha(archivo);
+    cola.prepend(ficha);
+    Bib.animar((tl) => tl.from(ficha, {
+      y: -14, opacity: 0, scale: 0.985, duration: 0.45,
+      clearProps: 'transform,opacity',
+    }));
   }
 }
 
@@ -356,6 +375,10 @@ function pintarLista() {
         </div>
       </article>`;
   }).join('');
+
+  Bib.animar((tl) => tl.from([...lista.querySelectorAll('.fila')].slice(0, 16), {
+    y: 12, opacity: 0, duration: 0.4, stagger: 0.03, clearProps: 'transform,opacity',
+  }));
 }
 
 $('buscar-admin').addEventListener('input', pintarLista);
@@ -382,6 +405,11 @@ lista.addEventListener('click', async (e) => {
     try {
       await Bib.api(`/api/libros/${encodeURIComponent(libro.id)}`, { method: 'DELETE' });
       libros = libros.filter((l) => l.id !== libro.id);
+      // La fila se retira antes de repintar; si no hay movimiento, se repinta y ya.
+      const salida = Bib.animar((tl) => tl.to(fila, {
+        opacity: 0, x: 24, duration: 0.25, ease: 'power2.in',
+      }));
+      if (salida) await salida.then();
       pintarLista();
       Bib.brindis(`«${libro.titulo}» se eliminó`);
     } catch (error) {
@@ -433,6 +461,10 @@ function abrirEditor(libro) {
       <span class="campo__ayuda">Si no eliges nada, se conserva la portada actual.</span>
     </div>`;
   editor.showModal();
+  Bib.animar((tl) => tl.from('.modal__caja', {
+    y: 16, opacity: 0, scale: 0.97, duration: 0.35, ease: 'power3.out',
+    clearProps: 'transform,opacity',
+  }));
 }
 
 $('cerrar-editor').addEventListener('click', () => editor.close());

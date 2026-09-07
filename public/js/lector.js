@@ -91,6 +91,7 @@ async function iniciar() {
   }
 
   cargando.hidden = true;
+  animarEntrada();
   await irAMarcador();
   document.addEventListener('keydown', teclado);
   gestos();
@@ -140,6 +141,9 @@ async function pintarPdf() {
   lienzo.height = Math.floor(vista.height);
   lienzo.style.width = `${Math.floor(vista.width / nitidez)}px`;
   lienzo.style.height = `${Math.floor(vista.height / nitidez)}px`;
+
+  // Un fundido corto disimula el instante en que el lienzo se repinta.
+  Bib.animar((tl) => tl.fromTo(lienzo, { opacity: 0.4 }, { opacity: 1, duration: 0.35 }), { remate: 600 });
 
   const tarea = hojaPdf.render({ canvasContext: lienzo.getContext('2d'), viewport: vista });
   tareaRender = tarea;
@@ -202,7 +206,6 @@ function medir() {
   }
 
   flujo.style.columnWidth = `${anchoColumna}px`;
-  flujo.dataset.animar = '0';
   flujo.scrollLeft = 0;
 
   const anchoContenido = flujo.scrollWidth - padIzq - padDer;
@@ -217,11 +220,21 @@ function medir() {
   // páginas de verdad.
 }
 
+let pasoEnCurso = null;
+
 function colocar(animar = true) {
   if (modo !== 'texto') return;
-  flujo.dataset.animar = animar ? '1' : '0';
-  const paso = Number(flujo.dataset.ancho || 0);
-  flujo.scrollLeft = (pagina - 1) * paso;
+  const destino = (pagina - 1) * Number(flujo.dataset.ancho || 0);
+  if (pasoEnCurso) { pasoEnCurso.kill(); pasoEnCurso = null; }
+  if (animar) {
+    // Tope corto: una página a medio pasar deja el texto partido en dos.
+    pasoEnCurso = Bib.animar(
+      (tl) => tl.to(flujo, { scrollLeft: destino, duration: 0.45, ease: 'power2.inOut' }),
+      { remate: 700 },
+    );
+    if (pasoEnCurso) return;
+  }
+  flujo.scrollLeft = destino;   // sin movimiento: se coloca de golpe
 }
 
 /* ---------------- navegación ---------------- */
@@ -315,6 +328,18 @@ function reajustar() {
     colocar(false);
     actualizarControles();
   }, 180);
+}
+
+/* ---------------- movimiento ---------------- */
+
+/** El libro se abre: barra, hoja y controles entran juntos. */
+function animarEntrada() {
+  Bib.animar((tl) => {
+    tl.from('.lector__barra > *', { y: -10, opacity: 0, stagger: 0.05, duration: 0.4 }, 0)
+      .from('.hoja', { y: 18, opacity: 0, scale: 0.985, duration: 0.55 }, 0.05)
+      .from('.lector__pie > *', { y: 10, opacity: 0, stagger: 0.05, duration: 0.4 }, 0.15)
+      .from('.paso', { opacity: 0, x: (i) => (i ? 10 : -10), stagger: 0.06, duration: 0.4, clearProps: 'transform,opacity' }, 0.25);
+  });
 }
 
 /* ---------------- marcador y páginas ---------------- */

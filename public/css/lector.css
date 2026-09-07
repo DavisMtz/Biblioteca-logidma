@@ -66,10 +66,10 @@
   line-height: 1.65;
   color: var(--text);
   overflow: hidden;              /* recorta las columnas que no tocan */
-  scroll-behavior: smooth;       /* pasar de página = desplazar una columna */
   hyphens: auto;
+  /* El desplazamiento de página lo lleva GSAP: nada de scroll-behavior aquí,
+     o las dos suavizaciones se pisarían. */
 }
-.hoja__flujo[data-animar="0"] { scroll-behavior: auto; }
 
 .hoja__flujo p { margin: 0 0 .9em; text-align: justify; text-justify: inter-word; orphans: 2; widows: 2; }
 .hoja__flujo h1, .hoja__flujo h2, .hoja__flujo h3, .hoja__flujo h4 {

@@ -101,7 +101,68 @@ const Bib = (() => {
       </div>`;
   }
 
-  return { iniciarTema, aplicarTema, api, brindis, escapar, pesoLegible, tonosDe, portadaHTML, ETIQUETAS_FORMATO };
+  /* ---------------- movimiento ----------------
+     Regla del proyecto: ninguna animación es lo único que hace visible algo.
+     Todo nace visible en el CSS y GSAP solo lo trae desde otro sitio, así que
+     si no llega a correr —pestaña de fondo, GSAP que no cargó, preferencia de
+     movimiento reducido— la página se ve igual, sin adorno. */
+
+  const sinMovimiento = () =>
+    typeof gsap === 'undefined' ||
+    matchMedia('(prefers-reduced-motion: reduce)').matches ||
+    document.hidden;
+
+  /**
+   * Construye una línea de tiempo con red de seguridad: si el navegador congela
+   * los fotogramas a media animación, se salta al estado final en vez de dejar
+   * el contenido a medio revelar.
+   */
+  function animar(construir, opciones = {}) {
+    if (sinMovimiento()) return null;
+    const { remate = 1500, ...resto } = opciones;
+    const tl = gsap.timeline({
+      // clearProps por defecto: un `transform` en línea que sobrevive a la
+      // animación gana al CSS y deja sin efecto estados como :active o :hover.
+      defaults: { duration: 0.5, ease: 'power3.out', clearProps: 'transform,opacity' },
+      ...resto,
+    });
+    construir(tl);
+
+    const rematar = () => { if (tl.progress() < 1) tl.progress(1); };
+    const limite = setTimeout(rematar, remate);
+    const alOcultar = () => { if (document.hidden) rematar(); };
+    document.addEventListener('visibilitychange', alOcultar);
+    tl.eventCallback('onComplete', () => {
+      clearTimeout(limite);
+      document.removeEventListener('visibilitychange', alOcultar);
+    });
+    return tl;
+  }
+
+  /**
+   * Cuenta hasta el número dado. Una cifra a medias MIENTE, así que el valor
+   * final se escribe primero y la cuenta va por `animar`, que la remata si el
+   * navegador congela los fotogramas.
+   */
+  function contar(elemento, valor) {
+    if (!elemento) return;
+    elemento.textContent = String(valor);
+    if (valor < 2) return;
+    const cursor = { n: 0 };
+    const escribir = () => { elemento.textContent = String(Math.round(cursor.n)); };
+    animar((tl) => {
+      tl.to(cursor, {
+        n: valor, duration: 0.7, ease: 'power2.out', snap: { n: 1 },
+        onUpdate: escribir,
+        onComplete: () => { elemento.textContent = String(valor); },
+      });
+    });
+  }
+
+  return {
+    iniciarTema, aplicarTema, api, brindis, escapar, pesoLegible, tonosDe,
+    portadaHTML, ETIQUETAS_FORMATO, animar, contar, sinMovimiento,
+  };
 })();
 
 Bib.iniciarTema();

@@ -36,10 +36,11 @@
   display: flex; flex-direction: column; gap: var(--s3);
   text-decoration: none; color: inherit;
   border-radius: var(--radius-md);
-  transition: transform .2s var(--ease);
+  /* Sin transición ni transform propios: de este elemento se encarga GSAP,
+     y una transición de CSS sobre la misma propiedad pelearía con él. */
 }
-.libro:hover { transform: translateY(-3px); }
-.libro:hover .libro__portada { box-shadow: var(--sh-3); }
+/* La elevación del hover vive en la portada, en su propia capa. */
+.libro:hover .libro__portada { transform: translateY(-4px); box-shadow: var(--sh-3); }
 
 .libro__portada {
   position: relative; aspect-ratio: 3 / 4.2;
@@ -47,7 +48,7 @@
   background: var(--surface-2);
   box-shadow: var(--sh-2);
   overflow: hidden;
-  transition: box-shadow .2s var(--ease);
+  transition: box-shadow .2s var(--ease), transform .2s var(--ease);
   /* El lomo: una sombra interior a la izquierda, como un libro cerrado. */
   --lomo: linear-gradient(90deg, rgba(0,0,0,.22) 0, rgba(0,0,0,.06) 7px, rgba(0,0,0,0) 16px);
 }
