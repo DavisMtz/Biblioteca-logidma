@@ -6,9 +6,20 @@
 }
 
 .cuerpo-lector {
-  min-height: 100dvh;
+  /* Altura exacta, no mínima: el lector no debe hacer scroll de página nunca,
+     o la hoja se sale por abajo y parece cortada. El respaldo en `vh` es
+     obligatorio: donde `dvh` no existe —navegadores dentro de apps, Android
+     viejo— la regla se descarta entera, la fila de en medio se queda sin
+     altura y el PDF sale minúsculo dentro de una caja de cero. */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* Sin esto, la barra de arriba estira el lector hasta lo que miden sus
+     botones —416 px en un teléfono de 390— y todo lo demás se va con ella:
+     la hoja se descoloca y lo que sobra se pierde por el borde. */
+  grid-template-columns: minmax(0, 1fr);
   background: var(--surface-2);
 }
 
@@ -111,11 +122,29 @@
   position: absolute; inset: 0;
   overflow: auto; overscroll-behavior: contain;
   padding: var(--s4);
-  display: grid;
-  justify-content: safe center; align-content: safe center;
+  /* `margin: auto` sobre el hijo centra mientras cabe y deja de centrar en
+     cuanto desborda, sin recortar el principio de la página. Es lo mismo que
+     buscaba `place-content: safe center`, pero eso no está en todos lados. */
+  display: flex;
   scrollbar-width: thin;
+  scrollbar-gutter: stable both-edges;
+  /* El navegador puede recorrer, pero el pellizco lo llevamos nosotros: el suyo
+     estira el dibujo y lo deja borroso. */
+  touch-action: pan-x pan-y;
 }
-.pdf__pagina { position: relative; line-height: 0; }
+.pdf__pagina {
+  position: relative; line-height: 0;
+  margin: auto; flex: none;
+  transform-origin: 0 0;
+  /* PDF.js dimensiona su capa de texto con el papel SIN girar: en una página
+     vertical le pone el ancho y el alto cruzados, y ese sobrante fantasma
+     sacaba una barra de desplazamiento que robaba altura y dejaba la página
+     cortada aunque estuviera en «Ajustar». Aquí se corta y deja de contar. */
+  overflow: clip;
+}
+/* Mientras dura el pellizco la página se estira por CSS —rápido y borroso— y
+   al soltar se vuelve a dibujar nítida. */
+.pdf__pagina--pellizco { will-change: transform; }
 .hoja__lienzo { display: block; max-width: none; border-radius: 2px; box-shadow: var(--sh-1); }
 
 /* Capa de texto de PDF.js: letras transparentes colocadas encima del dibujo.
@@ -195,7 +224,9 @@
 .oculto-escritorio { display: none; }
 
 @media (max-width: 820px) {
-  .lector { padding: var(--s3); gap: 0; }
+  .lector { padding: var(--s2) 0; gap: 0; }
+  /* A sangre: el marco y su sombra se comen el ancho que necesita un escaneo. */
+  .hoja { border-radius: 0; box-shadow: none; }
   .paso { display: none; }
   .oculto-escritorio { display: inline-flex; }
   .oculto-movil { display: none; }
@@ -203,5 +234,20 @@
   .lector__pie { padding: var(--s3) var(--s4); gap: var(--s3); }
   .lector__titulo strong { max-width: 24ch; }
   .lector__cuenta small { display: none; }
-  .hoja__pdf { padding: var(--s2); }
+  .hoja__pdf { padding: var(--s2); scrollbar-gutter: auto; }
+}
+
+/* En un teléfono no caben todos los mandos, y tampoco hacen falta: acercar se
+   hace con dos dedos y pasar de página deslizando uno. Se quedan los que
+   informan —el nivel y el número de página— y el deslizador, que además es el
+   camino sin gestos para quien navegue con el teclado. */
+@media (max-width: 560px) {
+  .lector__barra { padding: var(--s2); gap: var(--s2); }
+  .lector__titulo span { display: none; }
+  .lector__titulo strong { font-size: var(--fs-sm); max-width: 100%; }
+  /* Solo en un PDF: en un libro de texto esos botones son el tamaño de la
+     letra, y ahí no hay pellizco que los sustituya. */
+  .es-pdf #texto-menos, .es-pdf #texto-mas { display: none; }
+  .lector__pie { padding: var(--s2) var(--s3); gap: var(--s3); }
+  #anterior-movil, #siguiente-movil { display: none; }
 }
