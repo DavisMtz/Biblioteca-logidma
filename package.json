@@ -22,7 +22,6 @@
     "wrangler": "4.127.1"
   },
   "dependencies": {
-    "gsap": "3.13",
     "hono": "^4.9.0"
   }
 }
