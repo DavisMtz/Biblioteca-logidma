@@ -22,17 +22,25 @@ los lee en el navegador, paginados, sin descargar nada.
 | --- | --- |
 | Worker (API + servido) | `src/index.ts`, Hono sobre Cloudflare Workers |
 | Interfaz | `public/` — HTML, CSS y JS sin compilar, servido como Static Assets |
-| Archivos de los libros | Workers KV, namespace `biblioteca-archivos`, troceados en 5 MiB |
+| Archivos de los libros | Workers KV (`biblioteca-archivos`) hasta 900 MB, y R2 (`biblioteca-logidma`) a partir de ahí |
 | Catálogo y marcadores | D1, base `biblioteca-logidma` (`migraciones/`) |
 | Portadas | Cloudinary (cloud `srz5sh9l`, carpeta `biblioteca/portadas`) |
 
 Decisiones que no se deducen mirando el código:
 
-- **Los archivos viven en KV, no en R2, y es deliberado.** R2 exige un método de
-  pago para activarse aunque su tramo sea gratuito; KV entra en el plan gratis de
-  Workers. El techo es **1 GB por namespace y 1000 escrituras al día** (cada
-  parte de 5 MiB es una escritura). Si algún día hace falta más, mudarse a R2 es
-  cambiar el binding y las cuatro funciones de `/archivo` y `/api/subir`.
+- **Dos almacenes, los dos gratuitos, con desbordamiento automático.** Un libro
+  nuevo va a **KV** mientras la suma de lo guardado ahí más el archivo no pase de
+  **900 MB**; en cuanto lo pasa, va a **R2** (10 GB). Lo decide `elegirAlmacen()`
+  con un `SUM(tamano)` sobre D1, y queda anotado en `libros.almacen`, que es lo
+  que luego elige el camino al servir y al borrar. Los libros ya guardados no se
+  mueven: cada uno se sirve desde donde esté.
+- **El tamaño que manda el navegador solo sirve para elegir almacén.** El que se
+  guarda en el catálogo lo cuenta el servidor sumando las partes que recibe, así
+  que un cliente no puede falsearlo.
+- Topes de cada uno: KV, 1 GB por namespace, 25 MiB por valor y 1000 escrituras
+  al día; R2, 10 GB, 1 M de escrituras y 10 M de lecturas al mes, sin coste de
+  descarga. Las partes de 5 MiB valen para los dos (R2 exige que todas midan lo
+  mismo salvo la última, y al menos 5 MiB).
 - **Cada libro se guarda troceado** en claves `libro:<id>:<n>` de 5 MiB (el tope
   de KV por valor es 25 MiB). Como todas las partes miden lo mismo salvo la
   última, `GET /archivo/:id` calcula qué partes tocar y responde rangos (`206`),

@@ -216,8 +216,10 @@ function crearFicha(archivo) {
       const valor = (campo) => ficha.querySelector(`[data-campo="${campo}"]`).value.trim();
 
       decir('Preparando la subida…');
+      // El tamaño va solo para que el servidor elija almacén; el que se guarda
+      // en el catálogo lo cuenta él sumando las partes que recibe.
       const inicio = await Bib.api('/api/subir/iniciar', {
-        method: 'POST', body: JSON.stringify({ nombre: archivo.name }),
+        method: 'POST', body: JSON.stringify({ nombre: archivo.name, tamano: archivo.size }),
       });
 
       const partes = [];

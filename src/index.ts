@@ -4,6 +4,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 type Env = {
   DB: D1Database;
   ARCHIVOS: KVNamespace;
+  LIBROS_R2: R2Bucket;
   ASSETS: Fetcher;
   ADMIN_PASSWORD: string;
   SESSION_SECRET: string;
@@ -17,8 +18,15 @@ const COOKIE = 'bib_sesion';
 const DURACION_SESION = 60 * 60 * 12; // 12 h
 // Los archivos se guardan troceados en KV: el tope por valor es de 25 MiB y
 // cada trozo es una escritura (1000 al día en el plan gratuito).
+// R2 exige que todas las partes midan lo mismo salvo la última, y al menos
+// 5 MiB: este tamaño vale para los dos almacenes tal cual.
 const PARTE = 5 * 1024 * 1024;        // 5 MiB por parte
 const clavePart = (id: string, n: number) => `libro:${id}:${n}`;
+const claveR2 = (id: string, ext: string) => `libros/${id}.${ext}`;
+
+// Cuando KV llega aquí, los libros nuevos empiezan a ir a R2. Se deja margen
+// sobre el gigabyte gratuito para que un libro grande no se quede a medias.
+const UMBRAL_KV = 900 * 1024 * 1024;
 
 const FORMATOS: Record<string, string> = {
   pdf: 'application/pdf',
@@ -300,10 +308,12 @@ app.patch('/api/libros/:id', soloAdmin, async (c) => {
 });
 
 app.delete('/api/libros/:id', soloAdmin, async (c) => {
-  const libro = await c.env.DB.prepare(`SELECT partes FROM libros WHERE id = ?`)
-    .bind(c.req.param('id')).first<{ partes: number }>();
+  const libro = await c.env.DB.prepare(
+    `SELECT partes, almacen, clave_archivo FROM libros WHERE id = ?`,
+  ).bind(c.req.param('id')).first<{ partes: number; almacen: string; clave_archivo: string }>();
   if (!libro) return c.json({ error: 'No existe ese libro' }, 404);
-  await borrarPartes(c.env, c.req.param('id'), libro.partes);
+  if (libro.almacen === 'r2') await c.env.LIBROS_R2.delete(libro.clave_archivo);
+  else await borrarPartes(c.env, c.req.param('id'), libro.partes);
   await c.env.DB.prepare(`DELETE FROM libros WHERE id = ?`).bind(c.req.param('id')).run();
   await c.env.DB.prepare(`DELETE FROM marcadores WHERE libro_id = ?`).bind(c.req.param('id')).run();
   return c.json({ ok: true });
@@ -311,30 +321,67 @@ app.delete('/api/libros/:id', soloAdmin, async (c) => {
 
 /* ---------- subida por partes ---------- */
 
+/**
+ * Elige almacén: KV mientras quepa holgadamente, R2 en cuanto no.
+ * El tamaño que manda el navegador sirve SOLO para decidir el destino; el que
+ * se guarda en el catálogo lo sigue contando el servidor parte por parte.
+ */
+async function elegirAlmacen(c: any, tamanoPrevisto: number): Promise<'kv' | 'r2'> {
+  const fila = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(tamano), 0) AS usado FROM libros WHERE almacen = 'kv'`,
+  ).first<{ usado: number }>();
+  const usado = Number(fila?.usado || 0);
+  return usado + Math.max(0, tamanoPrevisto) > UMBRAL_KV ? 'r2' : 'kv';
+}
+
 app.post('/api/subir/iniciar', soloAdmin, async (c) => {
-  const { nombre } = await c.req.json<{ nombre: string }>();
+  const { nombre, tamano } = await c.req.json<{ nombre: string; tamano?: number }>();
   const formato = formatoDe(nombre || '');
   if (!formato) {
     return c.json({ error: 'Formato no admitido. Usa PDF, EPUB, DOCX, ODT, RTF, TXT, HTML o MD.' }, 400);
   }
   const idSubida = id();
+  const almacen = await elegirAlmacen(c, Number(tamano) || 0);
+
+  let uploadId: string | null = null;
+  let clave: string | null = null;
+  if (almacen === 'r2') {
+    clave = claveR2(idSubida, extension(nombre));
+    const multi = await c.env.LIBROS_R2.createMultipartUpload(clave, {
+      httpMetadata: {
+        contentType: FORMATOS[extension(nombre)],
+        contentDisposition: `inline; filename="${encodeURIComponent(nombre)}"`,
+      },
+    });
+    uploadId = multi.uploadId;
+  }
+
   await c.env.DB.prepare(
-    `INSERT INTO subidas (id, nombre_archivo, partes, creado_en) VALUES (?,?,0,?)`,
-  ).bind(idSubida, nombre, ahora()).run();
-  return c.json({ id: idSubida, formato, tamanoParte: PARTE });
+    `INSERT INTO subidas (id, nombre_archivo, partes, creado_en, almacen, upload_id, clave_r2)
+     VALUES (?,?,0,?,?,?,?)`,
+  ).bind(idSubida, nombre, ahora(), almacen, uploadId, clave).run();
+  return c.json({ id: idSubida, formato, tamanoParte: PARTE, almacen });
 });
 
 app.put('/api/subir/parte', soloAdmin, async (c) => {
   const idSubida = c.req.query('id') || '';
   const numero = Number(c.req.query('n') || 0);
   if (!idSubida || !numero) return c.json({ error: 'Falta id o número de parte' }, 400);
-  const fila = await c.env.DB.prepare(`SELECT partes FROM subidas WHERE id = ?`)
-    .bind(idSubida).first<{ partes: number }>();
+  const fila = await c.env.DB.prepare(
+    `SELECT partes, almacen, upload_id, clave_r2 FROM subidas WHERE id = ?`,
+  ).bind(idSubida).first<{ partes: number; almacen: string; upload_id: string | null; clave_r2: string | null }>();
   if (!fila) return c.json({ error: 'Subida no encontrada' }, 404);
 
   const cuerpo = await c.req.arrayBuffer();
   if (cuerpo.byteLength > PARTE) return c.json({ error: 'Parte demasiado grande' }, 413);
-  await c.env.ARCHIVOS.put(clavePart(idSubida, numero), cuerpo);
+
+  let etag: string | undefined;
+  if (fila.almacen === 'r2') {
+    const multi = c.env.LIBROS_R2.resumeMultipartUpload(fila.clave_r2!, fila.upload_id!);
+    etag = (await multi.uploadPart(numero, cuerpo)).etag;
+  } else {
+    await c.env.ARCHIVOS.put(clavePart(idSubida, numero), cuerpo);
+  }
   // Todas las partes miden PARTE menos la última: guardando cuál es la última
   // y cuánto pesa, el tamaño del archivo sale del servidor y no del navegador.
   await c.env.DB.prepare(
@@ -342,39 +389,55 @@ app.put('/api/subir/parte', soloAdmin, async (c) => {
                         partes = MAX(partes, ?)
      WHERE id = ?`,
   ).bind(numero, cuerpo.byteLength, numero, idSubida).run();
-  return c.json({ partNumber: numero, bytes: cuerpo.byteLength });
+  return c.json({ partNumber: numero, bytes: cuerpo.byteLength, etag });
 });
 
 app.post('/api/subir/completar', soloAdmin, async (c) => {
   const datos = await c.req.json<{
-    id: string; partes: { partNumber: number }[];
+    id: string; partes: { partNumber: number; etag?: string }[];
     titulo?: string; autor?: string; descripcion?: string; categoria?: string;
     anio?: number; portada_url?: string; paginas?: number; estado?: string; tamano?: number;
   }>();
   const fila = await c.env.DB.prepare(
-    `SELECT nombre_archivo, partes, bytes_ultima FROM subidas WHERE id = ?`,
-  ).bind(datos.id).first<{ nombre_archivo: string; partes: number; bytes_ultima: number }>();
+    `SELECT nombre_archivo, partes, bytes_ultima, almacen, upload_id, clave_r2 FROM subidas WHERE id = ?`,
+  ).bind(datos.id).first<{
+    nombre_archivo: string; partes: number; bytes_ultima: number;
+    almacen: string; upload_id: string | null; clave_r2: string | null;
+  }>();
   if (!fila) return c.json({ error: 'Subida no encontrada' }, 404);
 
   const partes = fila.partes;
   if (!partes) return c.json({ error: 'No se subió ninguna parte' }, 400);
   const tamano = (partes - 1) * PARTE + fila.bytes_ultima;
 
+  // En R2 el archivo no existe hasta que se cierran las partes; en KV cada
+  // parte ya quedó escrita por su cuenta.
+  if (fila.almacen === 'r2') {
+    const multi = c.env.LIBROS_R2.resumeMultipartUpload(fila.clave_r2!, fila.upload_id!);
+    await multi.complete(
+      (datos.partes || [])
+        .filter((p) => p && p.etag)
+        .map((p) => ({ partNumber: p.partNumber, etag: p.etag! })),
+    );
+  }
+
   const formato = formatoDe(fila.nombre_archivo)!;
   const t = ahora();
   await c.env.DB.prepare(
     `INSERT INTO libros (id, titulo, autor, descripcion, categoria, anio, formato, clave_archivo,
                          nombre_archivo, tamano, portada_url, paginas, estado, creado_en, actualizado_en,
-                         partes, tamano_parte)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                         partes, tamano_parte, almacen)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).bind(
     datos.id,
     (datos.titulo || fila.nombre_archivo.replace(/\.[^.]+$/, '')).slice(0, 300),
     datos.autor || '', datos.descripcion || '', datos.categoria || '',
-    datos.anio || null, formato, `libro:${datos.id}`, fila.nombre_archivo,
+    datos.anio || null, formato,
+    fila.almacen === 'r2' ? fila.clave_r2! : `libro:${datos.id}`,
+    fila.nombre_archivo,
     tamano, datos.portada_url || '', datos.paginas || null,
     datos.estado === 'borrador' ? 'borrador' : 'publicado', t, t,
-    partes, PARTE,
+    partes, PARTE, fila.almacen,
   ).run();
   await c.env.DB.prepare(`DELETE FROM subidas WHERE id = ?`).bind(datos.id).run();
 
@@ -384,10 +447,15 @@ app.post('/api/subir/completar', soloAdmin, async (c) => {
 
 app.post('/api/subir/cancelar', soloAdmin, async (c) => {
   const { id: idSubida } = await c.req.json<{ id: string }>();
-  const fila = await c.env.DB.prepare(`SELECT partes FROM subidas WHERE id = ?`)
-    .bind(idSubida).first<{ partes: number }>();
+  const fila = await c.env.DB.prepare(
+    `SELECT partes, almacen, upload_id, clave_r2 FROM subidas WHERE id = ?`,
+  ).bind(idSubida).first<{ partes: number; almacen: string; upload_id: string | null; clave_r2: string | null }>();
   if (fila) {
-    await borrarPartes(c.env, idSubida, fila.partes);
+    if (fila.almacen === 'r2' && fila.clave_r2 && fila.upload_id) {
+      await c.env.LIBROS_R2.resumeMultipartUpload(fila.clave_r2, fila.upload_id).abort().catch(() => {});
+    } else {
+      await borrarPartes(c.env, idSubida, fila.partes);
+    }
     await c.env.DB.prepare(`DELETE FROM subidas WHERE id = ?`).bind(idSubida).run();
   }
   return c.json({ ok: true });
@@ -453,15 +521,63 @@ async function leerParte(env: Env, idLibro: string, n: number): Promise<ArrayBuf
   return null;
 }
 
+/** Servido desde R2: el propio bucket resuelve los rangos. */
+async function servirDesdeR2(c: any, clave: string, formato: string, descarga: string | null) {
+  const cabeceraRango = c.req.header('range');
+  let rango: R2Range | undefined;
+  if (cabeceraRango) {
+    const m = /^bytes=(\d*)-(\d*)$/.exec(cabeceraRango.trim());
+    if (m) {
+      if (m[1] && m[2]) rango = { offset: Number(m[1]), length: Number(m[2]) - Number(m[1]) + 1 };
+      else if (m[1]) rango = { offset: Number(m[1]) };
+      else if (m[2]) rango = { suffix: Number(m[2]) };
+    }
+  }
+
+  const objeto = await c.env.LIBROS_R2.get(clave, rango ? { range: rango } : undefined);
+  if (!objeto) return c.text('Archivo no encontrado en el almacén', 404);
+
+  const cabeceras = new Headers();
+  objeto.writeHttpMetadata(cabeceras);
+  cabeceras.set('etag', objeto.httpEtag);
+  cabeceras.set('accept-ranges', 'bytes');
+  cabeceras.set('cache-control', 'private, max-age=3600');
+  if (!cabeceras.get('content-type')) {
+    cabeceras.set('content-type', FORMATOS[formato] || 'application/octet-stream');
+  }
+  if (descarga) cabeceras.set('content-disposition', descarga);
+
+  if (objeto.range && cabeceraRango) {
+    const r: any = objeto.range;
+    const inicio = r.offset ?? (objeto.size - (r.suffix ?? 0));
+    const largo = r.length ?? (objeto.size - inicio);
+    cabeceras.set('content-range', `bytes ${inicio}-${inicio + largo - 1}/${objeto.size}`);
+    cabeceras.set('content-length', String(largo));
+    return new Response(objeto.body, { status: 206, headers: cabeceras });
+  }
+  cabeceras.set('content-length', String(objeto.size));
+  return new Response(objeto.body, { headers: cabeceras });
+}
+
 app.get('/archivo/:id', async (c) => {
   const libro = await c.env.DB.prepare(
-    `SELECT formato, nombre_archivo, estado, tamano, partes, tamano_parte FROM libros WHERE id = ?`,
+    `SELECT formato, nombre_archivo, estado, tamano, partes, tamano_parte, almacen, clave_archivo
+     FROM libros WHERE id = ?`,
   ).bind(c.req.param('id')).first<{
     formato: string; nombre_archivo: string; estado: string;
     tamano: number; partes: number; tamano_parte: number;
+    almacen: string; clave_archivo: string;
   }>();
   if (!libro) return c.text('No existe', 404);
   if (libro.estado !== 'publicado' && !(await sesionValida(c))) return c.text('No existe', 404);
+
+  const descarga = c.req.query('descargar') === '1'
+    ? `attachment; filename="${encodeURIComponent(libro.nombre_archivo)}"` : null;
+
+  // R2 sabe servir rangos por su cuenta; con KV hay que coser las partes.
+  if (libro.almacen === 'r2') {
+    return servirDesdeR2(c, libro.clave_archivo, libro.formato, descarga);
+  }
 
   const idLibro = c.req.param('id');
   const total = libro.tamano;
@@ -517,9 +633,7 @@ app.get('/archivo/:id', async (c) => {
     'cache-control': 'private, max-age=3600',
     'content-length': String(fin - inicio + 1),
   });
-  if (c.req.query('descargar') === '1') {
-    cabeceras.set('content-disposition', `attachment; filename="${encodeURIComponent(libro.nombre_archivo)}"`);
-  }
+  if (descarga) cabeceras.set('content-disposition', descarga);
   if (parcial) {
     cabeceras.set('content-range', `bytes ${inicio}-${fin}/${total}`);
     return new Response(flujo, { status: 206, headers: cabeceras });
