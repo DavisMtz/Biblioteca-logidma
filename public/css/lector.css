@@ -59,6 +59,11 @@
 }
 
 .hoja {
+  /* El tamaño de la letra vive aquí y no en el flujo: la caja que mide las
+     páginas también lo necesita, y heredándolo las dos reparten el texto
+     exactamente igual. Si no coincidieran, un bloque cambiaría de número de
+     páginas solo con montarlo. */
+  --tamano: 18px;
   position: relative;
   width: min(760px, 100%);
   background: var(--surface);
@@ -71,7 +76,6 @@
 /* El texto fluye en columnas del ancho de la hoja; pasar de página
    es desplazar la columna, no hacer scroll. */
 .hoja__flujo {
-  --tamano: 18px;
   position: absolute; inset: 0;
   padding: var(--s7) var(--s6);
   column-gap: 64px;
@@ -86,6 +90,11 @@
      o las dos suavizaciones se pisarían. */
 }
 
+/* La caja donde se miden los bloques que no están a la vista. `visibility` y
+   no `display`: escondida con `display:none` no se maqueta, y sin maquetar no
+   hay columnas que contar. */
+.hoja__medidor { visibility: hidden; pointer-events: none; z-index: -1; }
+
 .hoja__flujo p { margin: 0 0 .9em; text-align: justify; text-justify: inter-word; orphans: 2; widows: 2; }
 /* Justificar sin partir palabras deja ríos de espacio en blanco; con guiones,
    pero sin cortar sílabas de dos letras, que se leen como erratas. */
@@ -97,8 +106,11 @@
 .hoja__flujo h1 { font-size: 1.5em; } .hoja__flujo h2 { font-size: 1.3em; } .hoja__flujo h3 { font-size: 1.12em; }
 .hoja__flujo img {
   max-width: 100%; height: auto; display: block; margin: 1em auto; break-inside: avoid;
-  /* Una ilustración más alta que la columna abre un hueco enorme antes de ella. */
-  max-height: 62vh; object-fit: contain;
+  /* Una ilustración más alta que la columna abre un hueco enorme antes de ella.
+     El tope se mide sobre la hoja, que es lo que el lector calcula y pasa en
+     `--alto-hoja`; en `vh` saldría mal en el teléfono, donde la ventana incluye
+     la barra de direcciones. El respaldo es para antes de la primera medida. */
+  max-height: calc(var(--alto-hoja, 62vh) * 0.72); object-fit: contain;
 }
 .hoja__flujo > :first-child { margin-block-start: 0; }
 .hoja__flujo blockquote {
@@ -112,9 +124,17 @@
 .hoja__flujo pre, .hoja__flujo code { font-family: var(--mono); font-size: .85em; }
 .hoja__flujo pre { background: var(--surface-2); padding: var(--s3); border-radius: var(--radius-sm); overflow-x: auto; }
 .hoja__flujo hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
-.hoja__flujo .capitulo { break-before: column; }
-.hoja__flujo .capitulo:first-child { break-before: auto; }
 .hoja__flujo a { color: var(--accent); }
+/* Un enlace interno del libro se queda sin destino —apunta a un archivo del ZIP
+   que aquí no es una dirección—, así que tampoco se pinta como si llevara a
+   alguna parte. */
+.hoja__flujo a:not([href]) { color: inherit; }
+
+/* Los estilos que trae el propio EPUB se inyectan luego, encerrados bajo
+   `.hoja__flujo`. Esta regla se defiende con `!important` porque sostiene el
+   reparto en páginas: un salto de página del libro justo al empezar un bloque
+   abriría delante una columna en blanco. */
+.hoja__flujo > :first-child { break-before: avoid !important; }
 
 /* ---------- PDF ---------- */
 

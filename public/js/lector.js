@@ -8,6 +8,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
 const $ = (id) => document.getElementById(id);
 const hoja = $('hoja');
 const flujo = $('flujo');
+const medidor = $('medidor');
 const lienzo = $('lienzo');
 const zonaPdf = $('zona-pdf');
 const paginaPdf = $('pdf-pagina');
@@ -75,7 +76,7 @@ async function descargar(url) {
     if (done) break;
     trozos.push(value);
     leidos += value.length;
-    progreso((leidos / largo) * 80, `Descargando… ${Math.round((leidos / largo) * 100)}%`);
+    progreso((leidos / largo) * 40, `Descargando… ${Math.round((leidos / largo) * 100)}%`);
   }
   const todo = new Uint8Array(leidos);
   let posicion = 0;
@@ -98,7 +99,9 @@ async function iniciar() {
   $('btn-descargar').href = `/archivo/${encodeURIComponent(libro.id)}?descargar=1`;
 
   try { tamanoTexto = Number(localStorage.getItem(CLAVE_TAMANO)) || 18; } catch { /* sin almacenamiento */ }
-  flujo.style.setProperty('--tamano', `${tamanoTexto}px`);
+  // El tamaño vive en la hoja, no en el flujo: la caja que mide también lo
+  // necesita, y heredándolo las dos reparten el texto exactamente igual.
+  hoja.style.setProperty('--tamano', `${tamanoTexto}px`);
 
   try {
     if (libro.formato === 'pdf') await abrirPdf();
@@ -135,6 +138,7 @@ async function abrirPdf() {
   total = pdf.numPages;
   zonaPdf.hidden = false;
   flujo.hidden = true;
+  medidor.hidden = true;
   document.body.classList.add('es-pdf');
 
   // Solo se heredan los ajustes vivos. Un porcentaje fijo guardado de otro libro
@@ -414,66 +418,274 @@ async function cambiarZoom(valor, conservar = false) {
   pintarNivelZoom();
 }
 
-/* ---------------- texto paginado ---------------- */
+/* ---------------- texto paginado, bloque a bloque ----------------
+
+   El libro NO se mete entero en la página. Para saber cuántas páginas ocupa un
+   texto, el navegador tiene que maquetarlo en columnas del ancho de la hoja, y
+   eso cuesta memoria y tiempo en proporción a lo que haya dentro. Con un libro
+   completo son cientos de columnas vivas a la vez: en el escritorio se nota, en
+   un teléfono el navegador se queda sin memoria y mata la pestaña.
+
+   Así que el libro viene troceado en bloques y solo uno vive en el DOM a la
+   vez. Lo que se maqueta nunca pasa de unas decenas de páginas, dé igual lo
+   gordo que sea el libro. El resto se mide por detrás, en una caja gemela
+   invisible, entre fotograma y fotograma: el total se afina solo mientras ya se
+   está leyendo. */
+
+let libroAbierto = null;
+let bloques = [];                       // { trozo, capitulo, peso, paginas, desde }
+const capitulosHechos = new Set();
+let bloqueMontado = -1;
+let paginaLocal = 1;
+let medicionCompleta = false;
+let tandaMedicion = 0;
+let pesoPorPagina = 1400;               // se corrige sola con lo que ya se midió
+let caja = { anchoColumna: 0, gap: 64, padIzq: 0, padDer: 0 };
 
 async function abrirTexto() {
-  progreso(10, 'Descargando el documento…');
+  progreso(6, 'Descargando el documento…');
   const buffer = await descargar(`/archivo/${encodeURIComponent(libro.id)}`);
-  progreso(85, 'Dando formato al texto…');
-  const html = await Formatos.aHtml(libro.formato, buffer);
+  progreso(45, 'Abriendo el libro…');
+  libroAbierto = await Formatos.abrir(
+    libro.formato, buffer,
+    (porcentaje, texto) => progreso(45 + (porcentaje / 100) * 45, texto),
+  );
 
   modo = 'texto';
   flujo.hidden = false;
+  medidor.hidden = false;
   zonaPdf.hidden = true;
-  flujo.innerHTML = html;
-  progreso(95, 'Repartiendo en páginas…');
+  aplicarEstilosDelLibro(libroAbierto.css);
 
-  // Las imágenes cambian la altura del texto: hay que medir después de cargarlas.
-  await Promise.all([...flujo.querySelectorAll('img')].map((img) =>
-    img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; })));
-
-  medir();
+  progreso(92, 'Repartiendo en páginas…');
+  medirCaja();
+  asegurarCapitulo(0);
+  await montar(0, 1);
+  actualizarControles();
   addEventListener('resize', reajustar);
+  medirDetras();
 }
 
-function medir() {
-  flujo.style.paddingBottom = '';               // sin esto el ajuste de abajo se acumula
+/* Los estilos del propio libro, ya filtrados y encerrados bajo `.hoja__flujo`.
+   Van después de los del lector para que en un empate de especificidad gane el
+   libro; lo que el lector no cede —colores del tema, interlineado, tamaño de
+   letra— ni siquiera llega hasta aquí, lo quita el filtro. */
+function aplicarEstilosDelLibro(css) {
+  if (!css) return;
+  const etiqueta = document.createElement('style');
+  etiqueta.id = 'estilos-del-libro';
+  etiqueta.textContent = css;
+  document.head.appendChild(etiqueta);
+}
+
+/* La caja que se ve y la que mide tienen que repartir el texto exactamente
+   igual, o el número de páginas de un bloque cambiaría al pasar de una a otra.
+   La geometría se calcula una vez y se aplica a las dos. */
+function medirCaja() {
+  for (const zona of [flujo, medidor]) zona.style.paddingBottom = '';
   const estilo = getComputedStyle(flujo);
-  const padIzq = parseFloat(estilo.paddingLeft);
-  const padDer = parseFloat(estilo.paddingRight);
+  const padIzq = parseFloat(estilo.paddingLeft) || 0;
+  const padDer = parseFloat(estilo.paddingRight) || 0;
   const gap = parseFloat(estilo.columnGap) || 64;
   const anchoColumna = Math.max(200, flujo.clientWidth - padIzq - padDer);
 
-  // La altura debe caber un número entero de renglones: si sobra medio,
-  // la última línea de cada página aparece cortada por la mitad.
-  const alto = parseFloat(estilo.lineHeight);
-  const padArriba = parseFloat(estilo.paddingTop);
-  const padAbajo = parseFloat(estilo.paddingBottom);
+  // La altura debe caber un número entero de renglones: si sobra medio, la
+  // última línea de cada página aparece cortada por la mitad.
+  const renglon = parseFloat(estilo.lineHeight) || 0;
+  const padArriba = parseFloat(estilo.paddingTop) || 0;
+  const padAbajo = parseFloat(estilo.paddingBottom) || 0;
   const util = flujo.clientHeight - padArriba - padAbajo;
-  if (alto > 0 && util > alto) {
-    flujo.style.paddingBottom = `${padAbajo + (util % alto)}px`;
+  const relleno = renglon > 0 && util > renglon ? padAbajo + (util % renglon) : padAbajo;
+
+  caja = { anchoColumna, gap, padIzq, padDer };
+  for (const zona of [flujo, medidor]) {
+    zona.style.paddingBottom = `${relleno}px`;
+    zona.style.columnWidth = `${anchoColumna}px`;
+    // Una ilustración más alta que la columna abre un hueco enorme delante. El
+    // tope se calcula sobre la hoja de verdad, no sobre la ventana, que en un
+    // teléfono incluye la barra de direcciones y sobra medio dedo.
+    zona.style.setProperty('--alto-hoja', `${flujo.clientHeight}px`);
+  }
+}
+
+/** Cuántas columnas —o sea, cuántas páginas— ocupa lo que hay en esa caja. */
+function columnasDe(zona) {
+  zona.scrollLeft = 0;
+  const ancho = zona.scrollWidth - caja.padIzq - caja.padDer;
+  return Math.max(1, Math.round((ancho + caja.gap) / (caja.anchoColumna + caja.gap)));
+}
+
+/** Limpia y trocea los capítulos que falten hasta el `indice`, en orden de lectura. */
+function asegurarCapitulo(indice) {
+  for (let k = capitulosHechos.size; k <= indice && k < libroAbierto.capitulos; k++) {
+    for (const trozo of libroAbierto.bloques(k)) {
+      bloques.push({ trozo, capitulo: k, peso: trozo.peso, paginas: null, desde: 1 });
+    }
+    capitulosHechos.add(k);
+  }
+  recalcular();
+}
+
+/** Igual, pero adelantando capítulos hasta que exista ese bloque. */
+async function asegurarBloque(indice) {
+  while (bloques.length <= indice && capitulosHechos.size < libroAbierto.capitulos) {
+    asegurarCapitulo(capitulosHechos.size);
+    if (bloques.length <= indice) await respirar();
+  }
+}
+
+const paginasDe = (bloque) => bloque.paginas ?? Math.max(1, Math.round(bloque.peso / pesoPorPagina));
+
+function recalcular() {
+  let acumulado = 1;
+  for (const bloque of bloques) {
+    bloque.desde = acumulado;
+    acumulado += paginasDe(bloque);
+  }
+  // Los capítulos que aún no se han troceado cuentan como una página cada uno:
+  // el total se afina mientras se mide, pero nunca se queda corto.
+  const sinTrocear = libroAbierto ? libroAbierto.capitulos - capitulosHechos.size : 0;
+  total = Math.max(1, acumulado - 1 + sinTrocear);
+  // El número que se enseña sale siempre del bloque montado: cuando se afinan
+  // las medidas de lo que va antes, la cifra cambia sola sin mover la lectura.
+  if (modo === 'texto' && bloques[bloqueMontado]) {
+    pagina = bloques[bloqueMontado].desde + paginaLocal - 1;
+  }
+}
+
+/** En qué bloque y en qué página de ese bloque cae la página `n` del libro. */
+function localizar(n) {
+  let elegido = 0;
+  for (let i = 0; i < bloques.length; i++) {
+    if (bloques[i].desde > n) break;
+    elegido = i;
+  }
+  const bloque = bloques[elegido];
+  if (!bloque) return { indice: 0, local: 1 };
+  return {
+    indice: elegido,
+    local: Math.max(1, Math.min(paginasDe(bloque), n - bloque.desde + 1)),
+  };
+}
+
+/* Un `break-before` en el primer elemento abriría una columna vacía delante: el
+   libro pide salto de página justo donde aquí ya empieza una. */
+function sinSaltoInicial(zona) {
+  let nodo = zona.firstElementChild;
+  for (let n = 0; nodo && n < 6; n++) {
+    nodo.style.breakBefore = 'avoid';
+    nodo.style.marginBlockStart = '0';
+    nodo = nodo.firstElementChild;
+  }
+}
+
+/* Solo se espera a las imágenes de las que no se sabe el tamaño. Las del EPUB
+   traen sus medidas en el marcado y ya reservaron su hueco; las de un DOCX o un
+   ODT no, y midiendo antes de que carguen el reparto saldría corto. */
+function esperarImagenes(zona) {
+  const aCiegas = [...zona.querySelectorAll('img')].filter(
+    (img) => !img.complete && !(img.getAttribute('width') && img.getAttribute('height')),
+  );
+  if (!aCiegas.length) return Promise.resolve();
+  return Promise.race([
+    Promise.all(aCiegas.map((img) => new Promise((r) => { img.onload = img.onerror = r; }))),
+    new Promise((r) => setTimeout(r, 3000)),   // una imagen que no llega no puede parar el libro
+  ]);
+}
+
+/** Con lo ya medido se acierta mejor con lo que falta por medir. */
+function afinarEstimacion() {
+  let peso = 0;
+  let paginas = 0;
+  for (const bloque of bloques) {
+    if (bloque.paginas == null) continue;
+    peso += bloque.peso;
+    paginas += bloque.paginas;
+  }
+  if (peso > 0 && paginas > 0) pesoPorPagina = Math.max(200, peso / paginas);
+}
+
+let turnoMontaje = 0;
+
+/** Pone un bloque en la hoja y se coloca en su página `local`. */
+async function montar(indice, local = 1, animarPaso = false) {
+  const turno = ++turnoMontaje;
+  await asegurarBloque(indice);
+  if (turno !== turnoMontaje) return;
+
+  const destino = Math.max(0, Math.min(indice, bloques.length - 1));
+  const bloque = bloques[destino];
+  if (!bloque) return;
+  const cambia = destino !== bloqueMontado;
+
+  if (cambia) {
+    flujo.innerHTML = bloque.trozo.html;
+    sinSaltoInicial(flujo);
+    bloqueMontado = destino;
+    await esperarImagenes(flujo);
+    if (turno !== turnoMontaje) return;
+    bloque.paginas = columnasDe(flujo);
+    afinarEstimacion();
+    // Un fundido corto disimula el cambio de bloque: en seco se lee como un fallo.
+    Bib.animar((tl) => tl.fromTo(flujo, { opacity: 0.5 }, { opacity: 1, duration: 0.28 }), { remate: 500 });
   }
 
-  flujo.style.columnWidth = `${anchoColumna}px`;
-  flujo.scrollLeft = 0;
-
-  const anchoContenido = flujo.scrollWidth - padIzq - padDer;
-  total = Math.max(1, Math.round((anchoContenido + gap) / (anchoColumna + gap)));
-  flujo.dataset.ancho = String(anchoColumna + gap);
-
-  if (pagina > total) pagina = total;
-  colocar(false);
+  paginaLocal = Math.max(1, Math.min(bloque.paginas || 1, local));
+  recalcular();
+  colocar(animarPaso && !cambia);
   actualizarControles();
-  // El reparto del texto depende de la pantalla: guardar ese número en el
-  // catálogo lo haría bailar según quién abra el libro. Solo el PDF tiene
-  // páginas de verdad.
+}
+
+/** Mide un bloque sin sacarlo a la pantalla, en la caja gemela. */
+function medirBloque(bloque) {
+  medidor.innerHTML = bloque.trozo.html;
+  sinSaltoInicial(medidor);
+  bloque.paginas = columnasDe(medidor);
+  // Fuera del DOM en cuanto se sabe la cuenta: así la memoria no se acumula
+  // bloque a bloque, que es justo lo que se venía a evitar.
+  medidor.replaceChildren();
+}
+
+/* Un hueco entre bloque y bloque. Medir es caro, y hacerlo del tirón devolvería
+   el atasco por la puerta de atrás. */
+const respirar = () => new Promise((resolver) => {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => resolver(), { timeout: 200 });
+  else setTimeout(resolver, 0);
+});
+
+/** Mide el resto del libro por detrás, sin quitarle fotogramas a la lectura. */
+async function medirDetras() {
+  const tanda = ++tandaMedicion;
+  medicionCompleta = false;
+  let i = 0;
+  for (;;) {
+    if (tanda !== tandaMedicion || modo !== 'texto') return;
+    if (i >= bloques.length) {
+      if (capitulosHechos.size >= libroAbierto.capitulos) break;
+      asegurarCapitulo(capitulosHechos.size);
+      actualizarControles();
+      await respirar();
+      continue;
+    }
+    if (bloques[i].paginas == null) {
+      medirBloque(bloques[i]);
+      afinarEstimacion();
+      recalcular();
+      actualizarControles();
+      await respirar();
+    }
+    i++;
+  }
+  medicionCompleta = true;
+  recalcular();
+  actualizarControles();
 }
 
 let pasoEnCurso = null;
 
 function colocar(animar = true) {
   if (modo !== 'texto') return;
-  const destino = (pagina - 1) * Number(flujo.dataset.ancho || 0);
+  const destino = (paginaLocal - 1) * (caja.anchoColumna + caja.gap);
   if (pasoEnCurso) { pasoEnCurso.kill(); pasoEnCurso = null; }
   if (animar) {
     // Tope corto: una página a medio pasar deja el texto partido en dos.
@@ -484,6 +696,25 @@ function colocar(animar = true) {
     if (pasoEnCurso) return;
   }
   flujo.scrollLeft = destino;   // sin movimiento: se coloca de golpe
+}
+
+/* Cambiar el ancho o el tamaño de la letra reparte el texto de otra manera. Lo
+   que se conserva es por dónde iba la lectura dentro del bloque, no el número
+   de página, que ya no significa lo mismo. */
+async function remaquetar() {
+  if (modo !== 'texto' || !bloques[bloqueMontado]) return;
+  const bloque = bloques[bloqueMontado];
+  const razon = bloque.paginas > 1 ? (paginaLocal - 1) / (bloque.paginas - 1) : 0;
+  tandaMedicion++;                            // la medición en curso ya no vale
+  for (const otro of bloques) otro.paginas = null;
+  medirCaja();
+  bloque.paginas = columnasDe(flujo);
+  afinarEstimacion();
+  paginaLocal = Math.max(1, Math.round(razon * (bloque.paginas - 1)) + 1);
+  recalcular();
+  colocar(false);
+  actualizarControles();
+  medirDetras();
 }
 
 /* ---------------- navegación ---------------- */
@@ -501,18 +732,29 @@ function actualizarControles() {
 async function ir(destino) {
   const nueva = Math.max(1, Math.min(total, Math.round(destino)));
   if (nueva === pagina) return;
-  pagina = nueva;
-  actualizarControles();
-  if (modo === 'pdf') { zonaPdf.scrollTop = 0; await pintarPdf(); }
-  else colocar(true);
+  if (modo === 'pdf') {
+    pagina = nueva;
+    actualizarControles();
+    zonaPdf.scrollTop = 0;
+    await pintarPdf();
+  } else {
+    const { indice, local } = localizar(nueva);
+    const mismoBloque = indice === bloqueMontado;
+    pagina = nueva;
+    actualizarControles();
+    await montar(indice, local, mismoBloque);
+  }
   apuntarMarcador();
 }
 
 /** El porcentaje dice de un vistazo cuánto queda; el número solo, no. */
 function pintarCuenta(n) {
   const avance = total > 1 ? Math.round(((n - 1) / (total - 1)) * 100) : 100;
-  cuenta.innerHTML = `<b>${n}</b> / ${total}<small>${avance} %</small>`;
-  $('anuncio').textContent = `Página ${n} de ${total}`;
+  // Mientras se mide el resto del libro el total es una estimación, y decirlo a
+  // secas sería mentir: se marca con una tilde hasta que la cuenta es firme.
+  const aproximado = modo === 'texto' && !medicionCompleta;
+  cuenta.innerHTML = `<b>${n}</b> / ${aproximado ? '~' : ''}${total}<small>${avance} %</small>`;
+  $('anuncio').textContent = `Página ${n} de ${aproximado ? 'unas ' : ''}${total}`;
 }
 
 /* Pulsar el contador abre un hueco para escribir la página: en un libro de
@@ -748,14 +990,8 @@ function cambiarTamano(delta) {
   if (modo !== 'texto') return;
   tamanoTexto = Math.max(13, Math.min(28, tamanoTexto + delta));
   try { localStorage.setItem(CLAVE_TAMANO, String(tamanoTexto)); } catch { /* sin almacenamiento */ }
-  const proporcion = total > 1 ? (pagina - 1) / (total - 1) : 0;
-  flujo.style.setProperty('--tamano', `${tamanoTexto}px`);
-  requestAnimationFrame(() => {
-    medir();
-    pagina = Math.max(1, Math.round(proporcion * (total - 1)) + 1);
-    colocar(false);
-    actualizarControles();
-  });
+  hoja.style.setProperty('--tamano', `${tamanoTexto}px`);
+  requestAnimationFrame(() => { remaquetar(); });
 }
 /* Un solo par de botones para las dos formas de leer: agrandan la letra cuando
    el texto refluye y acercan el papel cuando es un PDF. */
@@ -778,13 +1014,9 @@ $('nivel-zoom').addEventListener('click', () => cambiarZoom('ajustar'));
 let temporizadorAjuste;
 function reajustar() {
   clearTimeout(temporizadorAjuste);
-  temporizadorAjuste = setTimeout(async () => {
+  temporizadorAjuste = setTimeout(() => {
     if (modo === 'pdf') return void pintarPdf();
-    const proporcion = total > 1 ? (pagina - 1) / (total - 1) : 0;
-    medir();
-    pagina = Math.max(1, Math.round(proporcion * (total - 1)) + 1);
-    colocar(false);
-    actualizarControles();
+    remaquetar();
   }, 180);
 }
 
@@ -804,7 +1036,17 @@ function animarEntrada() {
 
 let temporizadorMarcador;
 function apuntarMarcador() {
-  try { localStorage.setItem(`bib.pagina.${idLibro}`, String(pagina)); } catch { /* sin almacenamiento */ }
+  try {
+    localStorage.setItem(`bib.pagina.${idLibro}`, String(pagina));
+    if (modo === 'texto' && bloques[bloqueMontado]) {
+      const bloque = bloques[bloqueMontado];
+      const razon = bloque.paginas > 1 ? (paginaLocal - 1) / (bloque.paginas - 1) : 0;
+      // El número de página depende de la pantalla; el bloque, no. Guardando los
+      // dos, el libro se retoma donde tocaba aunque se siga leyendo en otro sitio.
+      localStorage.setItem(`bib.punto.${idLibro}`,
+        JSON.stringify({ bloque: bloqueMontado, razon }));
+    }
+  } catch { /* sin almacenamiento */ }
   clearTimeout(temporizadorMarcador);
   temporizadorMarcador = setTimeout(() => {
     Bib.api(`/api/marcador/${encodeURIComponent(idLibro)}`, {
@@ -814,6 +1056,26 @@ function apuntarMarcador() {
 }
 
 async function irAMarcador() {
+  // En texto manda el marcador por bloque: el número de página cambia con la
+  // pantalla y el tamaño de la letra, pero el bloque es el mismo siempre.
+  if (modo === 'texto') {
+    let punto = null;
+    try { punto = JSON.parse(localStorage.getItem(`bib.punto.${idLibro}`) || 'null'); } catch { /* sin almacenamiento */ }
+    if (punto && Number.isInteger(punto.bloque) && punto.bloque > 0) {
+      await montar(punto.bloque, 1);
+      const bloque = bloques[bloqueMontado];
+      if (bloque && bloqueMontado === punto.bloque) {
+        paginaLocal = Math.max(1, Math.round((punto.razon || 0) * (bloque.paginas - 1)) + 1);
+        recalcular();
+        colocar(false);
+        actualizarControles();
+        Bib.brindis(`Retomamos en la página ${pagina}`);
+      }
+      apuntarMarcador();
+      return;
+    }
+  }
+
   let guardada = 0;
   try { guardada = Number(localStorage.getItem(`bib.pagina.${idLibro}`)) || 0; } catch { /* sin almacenamiento */ }
   if (!guardada) {

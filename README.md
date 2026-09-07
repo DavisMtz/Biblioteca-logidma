@@ -11,7 +11,10 @@ paginados, sin descargar nada.
 - **Formatos que abre:** PDF, EPUB, DOCX, ODT, RTF, TXT, HTML y Markdown.
 - **Lector paginado.** El PDF se dibuja con PDF.js página por página; el resto se
   convierte a HTML en el navegador y se reparte en columnas del ancho de la hoja,
-  así que «pasar de página» es pasar de página, no hacer scroll.
+  así que «pasar de página» es pasar de página, no hacer scroll. El libro va
+  troceado en bloques y solo uno vive en la página a la vez.
+- **Los EPUB conservan su tipografía:** sangrías, centrados, versalitas, versos y
+  saltos de capítulo salen como los dejó quien maquetó el libro.
 - **Marcador de lectura** por libro, con el tamaño de letra ajustable.
 - **Panel `/admin`:** subir (arrastrando o eligiendo), portada automática desde la
   primera página del PDF, edición de datos, borradores y borrado.
@@ -23,6 +26,7 @@ paginados, sin descargar nada.
 | --- | --- |
 | Worker (API + servido) | `src/index.ts`, Hono sobre Cloudflare Workers |
 | Interfaz | `public/` — HTML, CSS y JS sin compilar, servido como Static Assets |
+| Motor de formatos | `public/js/formatos.js`; el EPUB se descomprime en `public/js/epub-worker.js` con la lógica de `public/js/epub-zip.js` |
 | Archivos de los libros | R2, bucket `biblioteca-logidma` |
 | Catálogo y marcadores | D1, base `biblioteca-logidma` (`migraciones/`) |
 | Portadas | Cloudinary (cloud `srz5sh9l`, carpeta `biblioteca/portadas`) |
@@ -37,6 +41,50 @@ Decisiones que no se deducen mirando el código:
   libro grande sin bajarlo entero.
 - **El tamaño que se guarda en el catálogo lo cuenta el servidor** sumando las
   partes que recibe, no lo declara el navegador.
+
+- **El libro que refluye se lee por bloques, nunca entero.** Para saber cuántas
+  páginas ocupa un texto, el navegador tiene que maquetarlo en columnas, y eso
+  cuesta memoria y tiempo en proporción a lo que haya dentro. Con el libro
+  completo dentro son cientos de columnas vivas a la vez: en el escritorio se
+  nota, en un teléfono el navegador se queda sin memoria y mata la pestaña. Por
+  eso `formatos.js` trocea cada capítulo en bloques de unos 60 000 caracteres
+  —cortando donde el libro ya hacía una pausa— y el lector monta uno solo. El
+  resto se miden en una caja gemela invisible (`#medidor`), entre fotograma y
+  fotograma, así que el total se afina mientras ya se está leyendo; hasta que
+  cuaja, la cuenta se enseña con una tilde (`~1709`). Medido con un libro de
+  millón y medio de caracteres en un teléfono simulado: abrir pasó de 27 s a 1 s,
+  y el bloqueo más largo del hilo principal, de 10,9 s a 0,2 s.
+
+- **Descomprimir el EPUB va en un hilo aparte.** Es el tramo más largo con
+  diferencia y, hecho en la página, deja la pantalla muerta todo ese rato.
+  `epub-zip.js` no toca el DOM justamente para poder cargarse en el worker; la
+  página lo carga también como respaldo por si el worker no arranca. Las
+  imágenes cruzan como `Blob` (no se copian bytes, se pasa un asa) y sus medidas
+  se leen de la cabecera del archivo: con el ancho y el alto en el marcado, el
+  hueco de la ilustración existe antes de descodificarla y el reparto en páginas
+  no se descoloca al llegar.
+
+- **La limpieza también se paga a plazos.** DOMPurify recorre nodo a nodo y
+  atributo a atributo; hacerlo del libro entero era el otro parón gordo. Cada
+  bloque se limpia la primera vez que se monta o se mide, no antes.
+
+- **Los estilos del EPUB se filtran, no se copian.** Sin ellos el libro se lee
+  como un chorro de párrafos iguales; tal cual, rompen el lector (posiciones
+  fijas, columnas propias, alturas en píxeles) o se pelean con los temas. Así que
+  pasa una lista blanca de propiedades tipográficas y cada selector queda
+  encerrado bajo `.hoja__flujo`. Quedan fuera a propósito `color` y `background`
+  (mandan los temas claro/sepia/oscuro), `font-family` (manda la letra del
+  lector), `line-height` (el lector calcula la altura de la página para que quepa
+  un número entero de renglones, y si cada párrafo trae el suyo la cuenta no
+  sale), `height`, todo lo que venga en píxeles o puntos —no crece con A+ ni
+  encoge con A−— y cualquier valor con paréntesis, que deja el filtro en texto
+  plano y auditable de un vistazo. `page-break-before` sí pasa, convertido en
+  `break-before: column`: aquí una columna ES una página.
+
+- **El archivo de un libro se guarda un año en el navegador** (`immutable`). El
+  id se acuña al subirlo y cambiar el documento obliga a subir otro libro, así
+  que no hay nada que revalidar; reabrir un EPUB deja de costar la descarga
+  entera. El `etag` cubre las recargas a mano, que se saltan la caché.
 - Hasta el 07/09/2026 los archivos vivían en Workers KV, troceados a mano,
   porque R2 pide método de pago para activarse. Con R2 ya activo se mudaron los
   7 libros que había y KV salió del proyecto: R2 resuelve rangos por su cuenta,

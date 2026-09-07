@@ -460,9 +460,37 @@ app.put('/api/marcador/:id', async (c) => {
 
 /* ---------- servir el archivo desde R2, con soporte de rangos ---------- */
 
+/* El archivo de un libro no cambia NUNCA: el id se acuña al subirlo y cambiar
+   el documento obliga a subir otro libro. Por eso se puede guardar un año y
+   marcarlo `immutable`: reabrir un EPUB de veinte megas deja de costar la
+   descarga entera, que en un teléfono con datos era la mitad de la espera. */
+const CACHE_ARCHIVO = 'private, max-age=31536000, immutable';
+
+/** `If-None-Match` puede traer varios etags, y el débil (`W/"…"`) vale igual. */
+function etagCoincide(cabecera: string, etag: string): boolean {
+  if (cabecera.trim() === '*') return true;
+  const pelado = (v: string) => v.trim().replace(/^W\//, '');
+  return cabecera.split(',').some((v) => pelado(v) === pelado(etag));
+}
+
 /** Servido desde R2: el propio bucket resuelve los rangos. */
 async function servirDesdeR2(c: any, clave: string, formato: string, descarga: string | null) {
   const cabeceraRango = c.req.header('range');
+
+  // Una recarga a mano se salta la caché del navegador pero manda el etag: si
+  // coincide, aquí se corta y no viajan los bytes. Con rango no aplica: eso lo
+  // pide PDF.js para un trozo concreto y siempre quiere la respuesta.
+  const siNoCoincide = c.req.header('if-none-match');
+  if (siNoCoincide && !cabeceraRango) {
+    const cabeza = await c.env.LIBROS_R2.head(clave);
+    if (cabeza && etagCoincide(siNoCoincide, cabeza.httpEtag)) {
+      return new Response(null, {
+        status: 304,
+        headers: { etag: cabeza.httpEtag, 'cache-control': CACHE_ARCHIVO, 'accept-ranges': 'bytes' },
+      });
+    }
+  }
+
   let rango: R2Range | undefined;
   if (cabeceraRango) {
     const m = /^bytes=(\d*)-(\d*)$/.exec(cabeceraRango.trim());
@@ -480,7 +508,7 @@ async function servirDesdeR2(c: any, clave: string, formato: string, descarga: s
   objeto.writeHttpMetadata(cabeceras);
   cabeceras.set('etag', objeto.httpEtag);
   cabeceras.set('accept-ranges', 'bytes');
-  cabeceras.set('cache-control', 'private, max-age=3600');
+  cabeceras.set('cache-control', CACHE_ARCHIVO);
   if (!cabeceras.get('content-type')) {
     cabeceras.set('content-type', FORMATOS[formato] || 'application/octet-stream');
   }

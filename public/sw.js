@@ -9,7 +9,7 @@
      /archivo/*  — los documentos van por peticiones con rango (206) y pesan
                    decenas de megas; la Cache API no sabe responder rangos. */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `biblioteca-${VERSION}`;
 
 /* El esqueleto: lo justo para que la biblioteca abra sin conexión. */
@@ -22,6 +22,10 @@ const ESQUELETO = [
   '/js/comun.js',
   '/js/catalogo.js',
   '/js/pwa.js',
+  '/js/lector.js',
+  '/js/formatos.js',
+  '/js/epub-zip.js',
+  '/js/epub-worker.js',
   '/img/icono.svg',
   '/manifest.webmanifest',
 ];
