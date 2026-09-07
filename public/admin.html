@@ -56,6 +56,7 @@
       <nav class="pestanas" role="tablist">
         <button class="pestana" id="tab-subir" role="tab" aria-selected="true" aria-controls="vista-subir">Subir libros</button>
         <button class="pestana" id="tab-catalogo" role="tab" aria-selected="false" aria-controls="vista-catalogo">Catálogo</button>
+        <button class="pestana" id="tab-seguridad" role="tab" aria-selected="false" aria-controls="vista-seguridad">Seguridad</button>
       </nav>
 
       <!-- subir -->
@@ -81,6 +82,42 @@
           <input class="entrada" id="buscar-admin" type="search" placeholder="Buscar en el catálogo" autocomplete="off">
         </div>
         <div class="lista" id="lista"></div>
+      </div>
+
+      <!-- seguridad -->
+      <div id="vista-seguridad" role="tabpanel" aria-labelledby="tab-seguridad" hidden>
+        <form class="tarjeta clave" id="form-clave">
+          <div>
+            <h2>Cambiar la contraseña</h2>
+            <p class="clave__texto">Es la única contraseña de la biblioteca: con ella se sube, se edita y
+              se retira. Al cambiarla se cierran todas las sesiones abiertas, incluida esta.</p>
+          </div>
+
+          <div class="campo">
+            <label class="campo__label" for="clave-actual">Contraseña actual</label>
+            <input class="entrada" id="clave-actual" type="password" autocomplete="current-password" required>
+          </div>
+
+          <div class="campo">
+            <label class="campo__label" for="clave-nueva">Contraseña nueva</label>
+            <input class="entrada" id="clave-nueva" type="password" autocomplete="new-password" required minlength="8">
+            <span class="campo__ayuda">Mínimo 8 caracteres. Puede ser una frase con espacios, que se
+              recuerda mejor y es más difícil de adivinar.</span>
+            <div class="fuerza" aria-hidden="true"><span id="fuerza-barra"></span></div>
+            <span class="campo__ayuda" id="fuerza-texto" aria-live="polite"></span>
+          </div>
+
+          <div class="campo">
+            <label class="campo__label" for="clave-repetir">Repite la contraseña nueva</label>
+            <input class="entrada" id="clave-repetir" type="password" autocomplete="new-password" required>
+            <span class="campo__ayuda" id="repetir-aviso"></span>
+          </div>
+
+          <div class="aviso aviso--error" id="error-clave" hidden></div>
+          <div>
+            <button class="btn btn--primario" type="submit" id="btn-clave" disabled>Cambiar la contraseña</button>
+          </div>
+        </form>
       </div>
     </div>
   </section>

@@ -45,6 +45,15 @@ Decisiones que no se deducen mirando el código:
   así que las URLs prefirmadas tampoco eran una opción.
 - **Las subidas van por partes** (`/api/subir/iniciar` → `parte` → `completar`).
   Un Worker no acepta cuerpos de más de 100 MB de una vez.
+- **La contraseña de administración no vive en el secreto del Worker**, porque un
+  Worker no puede reescribir sus propios secretos. Vive en D1 como hash PBKDF2
+  (SHA-256, 100 000 iteraciones —el techo medido en Workers— y sal de 16 bytes).
+  `ADMIN_PASSWORD` es solo la **contraseña de arranque**: vale mientras no exista
+  la fila `ajustes.clave_admin` y deja de servir en cuanto se cambia una vez, para
+  que no quede una puerta trasera atada a un valor que anda en varios sitios.
+- **Al cambiar la contraseña caen todas las sesiones.** La cookie lleva dentro un
+  número de generación que sube con cada cambio; las cookies viejas dejan de
+  validar sin necesidad de guardar una lista de sesiones.
 - **La portada no pasa por el Worker:** el navegador pide una firma
   (`/api/portada/firma`) y sube directo a Cloudinary. El `api_secret` no sale del
   servidor y el destino lo decide él, no el cliente.
@@ -70,6 +79,16 @@ Hace falta un `.dev.vars` (ignorado por git) con:
 ADMIN_PASSWORD="…"
 SESSION_SECRET="…"
 CLOUDINARY_API_SECRET="…"
+```
+
+## Si se olvida la contraseña
+
+No hay correo de recuperación: se borra el hash y vuelve a valer la de arranque
+(la de `secrets.json`). De paso sube la generación, así cae cualquier sesión que
+siguiera abierta:
+
+```bash
+npx wrangler d1 execute biblioteca-logidma --remote --command   "DELETE FROM ajustes WHERE clave='clave_admin';    UPDATE ajustes SET valor = CAST(valor AS INTEGER) + 1 WHERE clave='generacion';"
 ```
 
 ## Desplegar

@@ -114,3 +114,21 @@
   .fila__acciones { grid-column: 1 / -1; justify-content: flex-end; }
   .tarjeta { padding: var(--s5); }
 }
+
+/* ---------- cambiar la contraseña ---------- */
+
+.clave {
+  display: flex; flex-direction: column; gap: var(--s5);
+  max-width: 520px; margin-bottom: var(--s8);
+}
+.clave h2 { font-size: var(--fs-lg); }
+.clave__texto { font-size: var(--fs-sm); color: var(--text-mut); margin-top: var(--s2); }
+
+.fuerza { height: 4px; border-radius: var(--radius-full); background: var(--surface-2); overflow: hidden; margin-top: var(--s1); }
+.fuerza span {
+  display: block; height: 100%; width: 100%; border-radius: inherit;
+  background: var(--danger); transform: scaleX(0); transform-origin: left;
+  transition: transform .25s var(--ease), background .25s var(--ease);
+}
+.fuerza[data-nivel="2"] span { background: var(--warning); }
+.fuerza[data-nivel="3"] span { background: var(--success); }

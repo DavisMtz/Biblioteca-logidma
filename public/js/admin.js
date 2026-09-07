@@ -62,19 +62,20 @@ $('btn-salir').addEventListener('click', async () => {
 
 /* ------------------------------ pestañas ------------------------------ */
 
+const PESTANAS = ['subir', 'catalogo', 'seguridad'];
+
 function pestana(activa) {
-  const esSubir = activa === 'subir';
-  $('tab-subir').setAttribute('aria-selected', String(esSubir));
-  $('tab-catalogo').setAttribute('aria-selected', String(!esSubir));
-  $('vista-subir').hidden = !esSubir;
-  $('vista-catalogo').hidden = esSubir;
-  Bib.animar((tl) => tl.from(esSubir ? '#vista-subir' : '#vista-catalogo', {
+  for (const nombre of PESTANAS) {
+    const esta = nombre === activa;
+    $(`tab-${nombre}`).setAttribute('aria-selected', String(esta));
+    $(`vista-${nombre}`).hidden = !esta;
+  }
+  Bib.animar((tl) => tl.from(`#vista-${activa}`, {
     y: 10, opacity: 0, duration: 0.35, clearProps: 'transform,opacity',
   }));
-  if (!esSubir) cargarCatalogo();
+  if (activa === 'catalogo') cargarCatalogo();
 }
-$('tab-subir').addEventListener('click', () => pestana('subir'));
-$('tab-catalogo').addEventListener('click', () => pestana('catalogo'));
+for (const nombre of PESTANAS) $(`tab-${nombre}`).addEventListener('click', () => pestana(nombre));
 
 /* ------------------------------ elegir archivos ------------------------------ */
 
@@ -500,6 +501,81 @@ $('guardar-editor').addEventListener('click', async () => {
   } finally {
     boton.disabled = false;
     boton.textContent = 'Guardar cambios';
+  }
+});
+
+/* ------------------------------ cambiar la contraseña ------------------------------ */
+
+const formClave = $('form-clave');
+const claveNueva = $('clave-nueva');
+const claveRepetir = $('clave-repetir');
+const claveActual = $('clave-actual');
+
+/** Pista de fortaleza, no un candado: la decisión final es suya. */
+function medirClave(valor) {
+  if (valor.length < 8) return { nivel: 1, texto: 'Muy corta: al menos 8 caracteres.' };
+  let variedad = 0;
+  if (/[a-záéíóúñ]/.test(valor)) variedad++;
+  if (/[A-ZÁÉÍÓÚÑ]/.test(valor)) variedad++;
+  if (/\d/.test(valor)) variedad++;
+  if (/[^\w\s]/.test(valor)) variedad++;
+  if (/\s/.test(valor)) variedad++;              // una frase cuenta como variedad
+  if (valor.length >= 16 || (valor.length >= 12 && variedad >= 3)) {
+    return { nivel: 3, texto: 'Buena: difícil de adivinar.' };
+  }
+  if (valor.length >= 10 || variedad >= 3) return { nivel: 2, texto: 'Aceptable. Una frase larga sería mejor.' };
+  return { nivel: 1, texto: 'Débil: alárgala o usa una frase con espacios.' };
+}
+
+function revisarFormulario() {
+  const nueva = claveNueva.value;
+  const barra = $('fuerza-barra');
+  const medidor = barra.parentElement;
+
+  if (nueva) {
+    const { nivel, texto } = medirClave(nueva);
+    medidor.dataset.nivel = String(nivel);
+    barra.style.transform = `scaleX(${nivel / 3})`;
+    $('fuerza-texto').textContent = texto;
+  } else {
+    medidor.dataset.nivel = '';
+    barra.style.transform = 'scaleX(0)';
+    $('fuerza-texto').textContent = '';
+  }
+
+  const coinciden = !claveRepetir.value || claveRepetir.value === nueva;
+  $('repetir-aviso').textContent = coinciden ? '' : 'Las dos contraseñas no coinciden.';
+  $('repetir-aviso').style.color = coinciden ? '' : 'var(--danger)';
+
+  $('btn-clave').disabled = !(claveActual.value && nueva.length >= 8 && claveRepetir.value === nueva);
+}
+
+[claveActual, claveNueva, claveRepetir].forEach((campo) =>
+  campo.addEventListener('input', revisarFormulario));
+
+formClave.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const boton = $('btn-clave');
+  const error = $('error-clave');
+  error.hidden = true;
+  boton.disabled = true;
+  boton.textContent = 'Cambiando…';
+  try {
+    await Bib.api('/api/clave', {
+      method: 'POST',
+      body: JSON.stringify({ actual: claveActual.value, nueva: claveNueva.value }),
+    });
+    formClave.reset();
+    revisarFormulario();
+    // El servidor ya retiró la cookie: hay que volver a entrar con la nueva.
+    Bib.brindis('Contraseña cambiada. Entra de nuevo con la nueva.');
+    setTimeout(() => location.reload(), 1800);
+  } catch (fallo) {
+    error.textContent = fallo.message;
+    error.hidden = false;
+    boton.disabled = false;
+    boton.textContent = 'Cambiar la contraseña';
+    revisarFormulario();
   }
 });
 

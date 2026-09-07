@@ -32,7 +32,8 @@ const FORMATOS: Record<string, string> = {
   md: 'text/markdown; charset=utf-8',
 };
 
-const app = new Hono<{ Bindings: Env; Variables: { admin: boolean } }>();
+type Ajustes = { hash: string | null; generacion: number };
+const app = new Hono<{ Bindings: Env; Variables: { admin: boolean; ajustes: Ajustes } }>();
 
 /* ---------- utilidades ---------- */
 
@@ -76,6 +77,67 @@ function igual(a: string, b: string): boolean {
   return dif === 0;
 }
 
+/* ---------- contraseña de administración ---------- */
+
+// 100 000 iteraciones es el techo medido en Workers de este plan: con 200 000
+// la petición muere por CPU. No subirlo sin volver a medirlo.
+const ITERACIONES = 100000;
+
+function deB64url(texto: string): Uint8Array {
+  const base = texto.replace(/-/g, '+').replace(/_/g, '/');
+  const cruda = atob(base + '='.repeat((4 - (base.length % 4)) % 4));
+  return Uint8Array.from(cruda, (c) => c.charCodeAt(0));
+}
+
+async function derivar(clave: string, sal: Uint8Array, iteraciones: number): Promise<Uint8Array> {
+  const material = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(clave), 'PBKDF2', false, ['deriveBits'],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: sal, iterations: iteraciones, hash: 'SHA-256' }, material, 256,
+  );
+  return new Uint8Array(bits);
+}
+
+/** Formato guardado: pbkdf2$<iteraciones>$<sal>$<hash>, para poder subir el listón luego. */
+async function hashDeClave(clave: string): Promise<string> {
+  const sal = crypto.getRandomValues(new Uint8Array(16));
+  const bytes = await derivar(clave, sal, ITERACIONES);
+  return `pbkdf2$${ITERACIONES}$${b64url(sal)}$${b64url(bytes)}`;
+}
+
+async function claveCorrecta(clave: string, guardado: string): Promise<boolean> {
+  const [algoritmo, iteraciones, sal, esperado] = guardado.split('$');
+  if (algoritmo !== 'pbkdf2' || !sal || !esperado) return false;
+  const bytes = await derivar(clave, deB64url(sal), Number(iteraciones) || ITERACIONES);
+  return igual(b64url(bytes), esperado);
+}
+
+/** Ajustes de la base, leídos una sola vez por petición. */
+async function ajustes(c: any): Promise<{ hash: string | null; generacion: number }> {
+  const guardado = c.get('ajustes');
+  if (guardado) return guardado;
+  const { results } = await c.env.DB.prepare(
+    `SELECT clave, valor FROM ajustes WHERE clave IN ('clave_admin', 'generacion')`,
+  ).all<{ clave: string; valor: string }>();
+  const mapa = Object.fromEntries((results || []).map((f) => [f.clave, f.valor]));
+  const datos = { hash: mapa.clave_admin || null, generacion: Number(mapa.generacion || 1) };
+  c.set('ajustes', datos);
+  return datos;
+}
+
+/**
+ * Comprueba la contraseña. Mientras no haya hash en la base vale la de
+ * arranque; en cuanto se cambia una vez, esa deja de servir para siempre —si no,
+ * sería una puerta trasera permanente atada a un valor que anda en varios sitios.
+ */
+async function claveValida(c: any, clave: string): Promise<boolean> {
+  if (!clave) return false;
+  const { hash } = await ajustes(c);
+  if (hash) return claveCorrecta(clave, hash);
+  return Boolean(c.env.ADMIN_PASSWORD) && igual(clave, c.env.ADMIN_PASSWORD);
+}
+
 async function sesionValida(c: any): Promise<boolean> {
   const galleta = getCookie(c, COOKIE);
   if (!galleta) return false;
@@ -85,8 +147,12 @@ async function sesionValida(c: any): Promise<boolean> {
   const firma = galleta.slice(corte + 1);
   const esperada = await firmar(cuerpo, c.env.SESSION_SECRET);
   if (!igual(firma, esperada)) return false;
-  const exp = Number(cuerpo.split(':')[1] || 0);
-  return exp > Math.floor(Date.now() / 1000);
+
+  const [, exp, gen] = cuerpo.split(':');
+  if (Number(exp || 0) <= Math.floor(Date.now() / 1000)) return false;
+  // La generación cambia al cambiar la contraseña: las sesiones viejas caen.
+  const { generacion } = await ajustes(c);
+  return Number(gen || 0) === generacion;
 }
 
 /* ---------- middleware ---------- */
@@ -105,23 +171,75 @@ const soloAdmin = async (c: any, next: any) => {
 
 app.get('/api/sesion', (c) => c.json({ admin: c.get('admin') }));
 
-app.post('/api/sesion', async (c) => {
-  const { clave } = await c.req.json<{ clave?: string }>().catch(() => ({ clave: '' }));
-  if (!clave || !c.env.ADMIN_PASSWORD || !igual(clave, c.env.ADMIN_PASSWORD)) {
-    // Retardo pequeño y uniforme para que probar claves en masa no sea gratis.
-    await new Promise((r) => setTimeout(r, 400));
-    return c.json({ error: 'Contraseña incorrecta' }, 401);
-  }
+async function abrirSesion(c: any) {
+  const { generacion } = await ajustes(c);
   const exp = Math.floor(Date.now() / 1000) + DURACION_SESION;
-  const cuerpo = `admin:${exp}:${b64url(crypto.getRandomValues(new Uint8Array(9)))}`;
+  const cuerpo = `admin:${exp}:${generacion}:${b64url(crypto.getRandomValues(new Uint8Array(9)))}`;
   const galleta = `${cuerpo}.${await firmar(cuerpo, c.env.SESSION_SECRET)}`;
   setCookie(c, COOKIE, galleta, {
     httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: DURACION_SESION,
   });
+}
+
+app.post('/api/sesion', async (c) => {
+  const { clave } = await c.req.json<{ clave?: string }>().catch(() => ({ clave: '' }));
+  if (!(await claveValida(c, clave || ''))) {
+    // Retardo pequeño y uniforme para que probar claves en masa no sea gratis.
+    await new Promise((r) => setTimeout(r, 400));
+    return c.json({ error: 'Contraseña incorrecta' }, 401);
+  }
+  await abrirSesion(c);
   return c.json({ ok: true });
 });
 
 app.delete('/api/sesion', (c) => {
+  deleteCookie(c, COOKIE, { path: '/' });
+  return c.json({ ok: true });
+});
+
+/* ---------- cambiar la contraseña ---------- */
+
+const CLAVES_OBVIAS = [
+  '12345678', '123456789', 'password', 'contrasena', 'contraseña',
+  'biblioteca', 'logidma', 'administrador', 'qwertyui', 'aaaaaaaa',
+];
+
+/** Devuelve el motivo del rechazo, o null si la contraseña sirve. */
+function revisarClave(nueva: string, actual: string): string | null {
+  if (!nueva || nueva.length < 8) return 'La contraseña nueva debe tener al menos 8 caracteres.';
+  if (nueva.length > 200) return 'La contraseña nueva es demasiado larga.';
+  if (nueva === actual) return 'La contraseña nueva tiene que ser distinta de la actual.';
+  if (nueva.trim() !== nueva) return 'La contraseña no puede empezar ni terminar con espacios.';
+  const llana = nueva.toLowerCase().replace(/\s+/g, '');
+  if (CLAVES_OBVIAS.includes(llana)) return 'Esa contraseña es demasiado fácil de adivinar. Elige otra.';
+  return null;
+}
+
+app.post('/api/clave', soloAdmin, async (c) => {
+  const { actual, nueva } = await c.req.json<{ actual?: string; nueva?: string }>()
+    .catch(() => ({ actual: '', nueva: '' }));
+
+  if (!(await claveValida(c, actual || ''))) {
+    await new Promise((r) => setTimeout(r, 400));
+    return c.json({ error: 'La contraseña actual no es correcta.' }, 401);
+  }
+  const problema = revisarClave(nueva || '', actual || '');
+  if (problema) return c.json({ error: problema }, 400);
+
+  const { generacion } = await ajustes(c);
+  const t = ahora();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO ajustes (clave, valor, actualizado_en) VALUES ('clave_admin', ?, ?)
+       ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en`,
+    ).bind(await hashDeClave(nueva!), t),
+    c.env.DB.prepare(
+      `INSERT INTO ajustes (clave, valor, actualizado_en) VALUES ('generacion', ?, ?)
+       ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en`,
+    ).bind(String(generacion + 1), t),
+  ]);
+
+  // La sesión propia también cae: con la generación nueva, la cookie ya no vale.
   deleteCookie(c, COOKIE, { path: '/' });
   return c.json({ ok: true });
 });
