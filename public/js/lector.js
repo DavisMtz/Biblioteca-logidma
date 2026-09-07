@@ -113,9 +113,12 @@ async function iniciar() {
 
   cargando.hidden = true;
   animarEntrada();
-  await irAMarcador();
+  // Los mandos, antes que el marcador: buscar dónde se quedó uno puede tardar
+  // —hay que medir el libro para trasladar el número de página—, y mientras
+  // tanto la hoja ya está a la vista y hay que poder pasarla.
   document.addEventListener('keydown', teclado);
   gestos();
+  await irAMarcador();
 }
 
 /* ---------------- PDF ---------------- */
@@ -653,10 +656,18 @@ const respirar = () => new Promise((resolver) => {
   else setTimeout(resolver, 0);
 });
 
+/* Quien necesite el total de verdad —y no la estimación de mientras— espera a
+   esta promesa. Cada pasada nueva remata la anterior, para que nadie se quede
+   esperando una medición que ya no va a terminar. */
+let medicion = Promise.resolve();
+let avisarMedido = null;
+
 /** Mide el resto del libro por detrás, sin quitarle fotogramas a la lectura. */
 async function medirDetras() {
   const tanda = ++tandaMedicion;
   medicionCompleta = false;
+  if (avisarMedido) avisarMedido();
+  medicion = new Promise((resolver) => { avisarMedido = resolver; });
   let i = 0;
   for (;;) {
     if (tanda !== tandaMedicion || modo !== 'texto') return;
@@ -679,6 +690,7 @@ async function medirDetras() {
   medicionCompleta = true;
   recalcular();
   actualizarControles();
+  if (avisarMedido) { avisarMedido(); avisarMedido = null; }
 }
 
 let pasoEnCurso = null;
@@ -1038,6 +1050,9 @@ let temporizadorMarcador;
 function apuntarMarcador() {
   try {
     localStorage.setItem(`bib.pagina.${idLibro}`, String(pagina));
+    // Cuántas páginas había cuando se apuntó: sin ese dato, un número de página
+    // guardado no significa nada si el reparto cambia.
+    localStorage.setItem(`bib.total.${idLibro}`, String(total));
     if (modo === 'texto' && bloques[bloqueMontado]) {
       const bloque = bloques[bloqueMontado];
       const razon = bloque.paginas > 1 ? (paginaLocal - 1) / (bloque.paginas - 1) : 0;
@@ -1077,11 +1092,36 @@ async function irAMarcador() {
   }
 
   let guardada = 0;
-  try { guardada = Number(localStorage.getItem(`bib.pagina.${idLibro}`)) || 0; } catch { /* sin almacenamiento */ }
+  let escala = 0;
+  try {
+    guardada = Number(localStorage.getItem(`bib.pagina.${idLibro}`)) || 0;
+    escala = Number(localStorage.getItem(`bib.total.${idLibro}`)) || 0;
+  } catch { /* sin almacenamiento */ }
   if (!guardada) {
     try { guardada = (await Bib.api(`/api/marcador/${encodeURIComponent(idLibro)}`)).pagina; } catch { /* sin marcador */ }
   }
-  if (guardada > 1 && guardada <= total) {
+
+  if (guardada <= 1) return;
+
+  // Un número de página solo significa algo con el libro medido entero: hasta
+  // entonces el total es una estimación y trasladar sobre él erraría el tiro.
+  // Se espera, pero no a costa de quien ya se puso a leer.
+  if (modo === 'texto' && !medicionCompleta) {
+    const quieto = `${bloqueMontado}:${paginaLocal}`;
+    await Promise.race([medicion, new Promise((r) => setTimeout(r, 30000))]);
+    if (`${bloqueMontado}:${paginaLocal}` !== quieto) return;
+  }
+
+  // El reparto en páginas cambia con la pantalla, con el tamaño de la letra y
+  // —desde que el libro trae su propia tipografía— con el libro mismo. Si se
+  // apuntó cuántas páginas había entonces, el número se traslada en proporción.
+  if (escala > 1 && total > 1 && escala !== total) {
+    guardada = Math.round(((guardada - 1) / (escala - 1)) * (total - 1)) + 1;
+  }
+  // Y si no se apuntó, al menos se mete dentro de lo que hay ahora: devolver a
+  // la primera página a quien iba por la mitad es la peor de las opciones.
+  guardada = Math.min(guardada, total);
+  if (guardada > 1) {
     await ir(guardada);
     Bib.brindis(`Retomamos en la página ${guardada}`);
   }
