@@ -32,8 +32,18 @@ const Bib = (() => {
     boton.addEventListener('click', () => {
       aplicarTema(ciclo[(ciclo.indexOf(efectivo()) + 1) % ciclo.length]);
       rotular();
+      // El icono entra girando: el cambio de tema se ve en toda la página, pero
+      // el gesto pasó aquí, y conviene que este botón acuse el golpe.
+      const icono = boton.querySelector('svg');
+      if (icono && !sinMovimiento()) {
+        gsap.fromTo(icono, { rotate: -60, scale: 0.6 },
+          { rotate: 0, scale: 1, duration: 0.55, ease: 'back.out(2.2)', clearProps: 'transform' });
+      }
     });
   }
+
+  /* La puerta es `/entrar`, y no se manda a nadie de vuelta a ella. */
+  const enLaPuerta = () => /^\/entrar(\.html)?$/.test(location.pathname);
 
   async function api(ruta, opciones = {}) {
     const resp = await fetch(ruta, {
@@ -46,8 +56,20 @@ const Bib = (() => {
     let datos = null;
     try { datos = await resp.json(); } catch { /* respuesta sin cuerpo */ }
     if (!resp.ok) {
+      /* La biblioteca está cerrada y a quien mira le falta la clave. En vez de
+         enseñarle un error que no le dice qué hacer, se le lleva a pedirla con
+         el sitio al que iba apuntado, para devolverlo ahí en cuanto entre. Así
+         un enlace a un libro concreto sigue llevando a ese libro. */
+      if (resp.status === 401 && datos && datos.codigo === 'acceso' && !enLaPuerta()) {
+        const destino = encodeURIComponent(location.pathname + location.search);
+        location.replace(`/entrar?destino=${destino}`);
+        // A propósito sin resolver: la página ya se está yendo y quien llamó no
+        // debe pintar un error de camino a la puerta.
+        return new Promise(() => {});
+      }
       const error = new Error((datos && datos.error) || `Error ${resp.status}`);
       error.status = resp.status;
+      error.codigo = datos && datos.codigo;
       throw error;
     }
     return datos;
@@ -98,20 +120,32 @@ const Bib = (() => {
     rtf: 'RTF', txt: 'TXT', html: 'HTML', md: 'MD',
   };
 
+  /* La portada va en tres capas, y no por gusto:
+
+       .libro__lamina   la tapa; es lo único que se inclina bajo el puntero
+       .libro__brillo   el reflejo que la cruza al pasar por encima
+       las etiquetas    formato y borrador, quietas: si se inclinaran con la
+                        tapa parecerían pegadas al libro en vez de puestas encima
+
+     Separarlas también evita que el CSS y GSAP se peleen por el mismo
+     `transform`: la elevación al pasar por encima es del CSS y vive en
+     `.libro__portada`; la inclinación es de GSAP y vive en la lámina. */
   function portadaHTML(libro) {
     const etiqueta = ETIQUETAS_FORMATO[libro.formato] || libro.formato.toUpperCase();
     const estado = libro.estado === 'borrador'
       ? '<span class="etiqueta etiqueta--borrador libro__estado">Borrador</span>' : '';
-    if (libro.portada_url) {
-      return `${estado}<span class="libro__formato">${etiqueta}</span>
-        <img src="${escapar(libro.portada_url)}" alt="Portada de ${escapar(libro.titulo)}" loading="lazy">`;
-    }
-    const [a, b] = tonosDe(libro.titulo || libro.id);
+    const tapa = libro.portada_url
+      ? `<img src="${escapar(libro.portada_url)}" alt="Portada de ${escapar(libro.titulo)}" loading="lazy" decoding="async">`
+      : (() => {
+        const [a, b] = tonosDe(libro.titulo || libro.id);
+        return `<div class="libro__generada" style="--tono-a:${a};--tono-b:${b}">
+            <span>${escapar(libro.titulo)}</span>
+            <small>${escapar(libro.autor || 'Logidma')}</small>
+          </div>`;
+      })();
     return `${estado}<span class="libro__formato">${etiqueta}</span>
-      <div class="libro__generada" style="--tono-a:${a};--tono-b:${b}">
-        <span>${escapar(libro.titulo)}</span>
-        <small>${escapar(libro.autor || 'Logidma')}</small>
-      </div>`;
+      <span class="libro__lamina">${tapa}</span>
+      <span class="libro__brillo" aria-hidden="true"></span>`;
   }
 
   /* ---------------- movimiento ----------------
@@ -172,10 +206,32 @@ const Bib = (() => {
     });
   }
 
+  /* La cabecera se despega del papel en cuanto se baja: una línea y una sombra
+     corta bastan para que se lea como una capa por encima. Va aquí y no en el
+     catálogo porque la cabecera es la misma en todas las páginas.
+
+     Se escribe en el `body` solo cuando el estado cambia de verdad, no en cada
+     píxel de desplazamiento: tocar el DOM en cada evento de scroll es la forma
+     más fácil de que una página deje de ir suave. */
+  function vigilarDesplazamiento() {
+    if (!document.querySelector('.cabecera')) return;
+    let abajo = null;
+    const mirar = () => {
+      const ahora = window.scrollY > 12;
+      if (ahora === abajo) return;
+      abajo = ahora;
+      document.body.dataset.desplazado = ahora ? '1' : '0';
+    };
+    mirar();
+    addEventListener('scroll', mirar, { passive: true });
+  }
+
   return {
     iniciarTema, aplicarTema, api, brindis, escapar, pesoLegible, tonosDe,
     portadaHTML, ETIQUETAS_FORMATO, animar, contar, sinMovimiento,
+    vigilarDesplazamiento,
   };
 })();
 
 Bib.iniciarTema();
+Bib.vigilarDesplazamiento();

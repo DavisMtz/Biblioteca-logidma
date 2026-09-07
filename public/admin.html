@@ -92,6 +92,50 @@
 
       <!-- seguridad -->
       <div id="vista-seguridad" role="tabpanel" aria-labelledby="tab-seguridad" hidden>
+        <form class="tarjeta clave" id="form-acceso-lectura">
+          <div>
+            <h2>Quién puede entrar</h2>
+            <p class="clave__texto">La biblioteca se comparte por su enlace. Aquí se decide si
+              ese enlace le basta a cualquiera o hace falta además una clave.</p>
+          </div>
+
+          <div class="opciones" role="radiogroup" aria-label="Quién puede entrar">
+            <label class="opcion">
+              <input type="radio" name="modo-acceso" value="publico" checked>
+              <span class="opcion__texto">
+                <strong>Abierta</strong>
+                <small>Cualquiera con el enlace lee la biblioteca.</small>
+              </span>
+            </label>
+            <label class="opcion">
+              <input type="radio" name="modo-acceso" value="clave">
+              <span class="opcion__texto">
+                <strong>Con clave</strong>
+                <small>Solo entra quien tenga la clave que repartas.</small>
+              </span>
+            </label>
+          </div>
+
+          <div class="campo" id="campo-clave-lectura" hidden>
+            <label class="campo__label" for="clave-lectura">Clave de la biblioteca</label>
+            <div class="fila-clave">
+              <input class="entrada" id="clave-lectura" type="text" autocomplete="off"
+                     autocapitalize="off" autocorrect="off" spellcheck="false" minlength="6"
+                     placeholder="Genera una o escribe la tuya">
+              <button class="btn btn--linea" type="button" id="btn-generar">Generar</button>
+              <button class="btn btn--linea" type="button" id="btn-copiar">Copiar</button>
+            </div>
+            <span class="campo__ayuda">Es la misma para todos y se puede leer aquí siempre que
+              haga falta, así que compártela cuando quieras sin tener que cambiarla. Al
+              cambiarla, quien ya hubiera entrado tendrá que volver a escribirla.</span>
+          </div>
+
+          <div class="aviso aviso--error" id="error-acceso-lectura" hidden></div>
+          <div>
+            <button class="btn btn--primario" type="submit" id="btn-guardar-acceso">Guardar</button>
+          </div>
+        </form>
+
         <form class="tarjeta clave" id="form-clave">
           <div>
             <h2>Cambiar la contraseña</h2>

@@ -17,6 +17,9 @@ const archivos = [
   ['node_modules/marked/marked.min.js', 'marked.min.js'],
   ['node_modules/dompurify/dist/purify.min.js', 'purify.min.js'],
   ['node_modules/gsap/dist/gsap.min.js', 'gsap.min.js'],
+  // Flip mide dónde estaba cada tarjeta y dónde acaba, y anima el camino. Solo
+  // lo carga el catálogo, que es donde el filtro recoloca la rejilla entera.
+  ['node_modules/gsap/dist/Flip.min.js', 'gsap-flip.min.js'],
 ];
 
 await rm(destino, { recursive: true, force: true });

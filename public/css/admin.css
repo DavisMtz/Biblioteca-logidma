@@ -124,6 +124,31 @@
 .clave h2 { font-size: var(--fs-lg); }
 .clave__texto { font-size: var(--fs-sm); color: var(--text-mut); margin-top: var(--s2); }
 
+/* Las dos formas de tener la puerta. Se pintan como tarjetas y no como dos
+   radios sueltos: la diferencia entre abierta y cerrada merece leerse entera
+   antes de tocarla, no adivinarse por una etiqueta de dos palabras. */
+.opciones { display: grid; gap: var(--s2); }
+.opcion {
+  display: flex; align-items: flex-start; gap: var(--s3);
+  padding: var(--s3) var(--s4); cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  transition: border-color .16s var(--ease), background .16s var(--ease);
+}
+.opcion:hover { border-color: var(--border-fuerte); }
+.opcion:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.opcion:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.opcion input { margin-top: 3px; accent-color: var(--accent); flex: none; }
+.opcion__texto { display: flex; flex-direction: column; gap: 2px; }
+.opcion__texto small { font-size: var(--fs-xs); color: var(--text-mut); }
+
+/* La clave se enseña en claro a propósito: es la que hay que copiar y repartir,
+   y unos puntitos ahí solo estorbarían a quien ya está dentro del panel. */
+.fila-clave { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.fila-clave .entrada {
+  flex: 1 1 14ch; min-width: 0;
+  font-family: var(--mono); font-size: var(--fs-sm); letter-spacing: .04em;
+}
+
 .fuerza { height: 4px; border-radius: var(--radius-full); background: var(--surface-2); overflow: hidden; margin-top: var(--s1); }
 .fuerza span {
   display: block; height: 100%; width: 100%; border-radius: inherit;

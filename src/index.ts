@@ -15,6 +15,13 @@ type Env = {
 
 const COOKIE = 'bib_sesion';
 const DURACION_SESION = 60 * 60 * 12; // 12 h
+
+/* La galleta de quien solo lee. Dura mucho más que la de administración porque
+   no abre nada: con la biblioteca cerrada solo demuestra que en su día supo la
+   clave. Pedírsela cada doce horas a quien va por la mitad de un libro sería un
+   castigo, y la clave la reparte una persona a mano, no un formulario. */
+const COOKIE_LECTOR = 'bib_lector';
+const DURACION_LECTOR = 60 * 60 * 24 * 30; // 30 días
 // Los archivos se guardan troceados en KV: el tope por valor es de 25 MiB y
 // cada trozo es una escritura (1000 al día en el plan gratuito).
 // R2 exige que todas las partes midan lo mismo salvo la última, y al menos 5 MiB.
@@ -33,7 +40,13 @@ const FORMATOS: Record<string, string> = {
   md: 'text/markdown; charset=utf-8',
 };
 
-type Ajustes = { hash: string | null; generacion: number };
+type Ajustes = {
+  hash: string | null;        // resumen de la contraseña de administración
+  generacion: number;         // sube al cambiarla, y tira las sesiones abiertas
+  acceso: string;             // 'publico' | 'clave'
+  guardada: string;           // la clave de lectura, cifrada
+  generacionLectura: number;  // sube al cambiar el acceso, y tira a los lectores
+};
 const app = new Hono<{ Bindings: Env; Variables: { admin: boolean; ajustes: Ajustes } }>();
 
 /* ---------- utilidades ---------- */
@@ -115,17 +128,35 @@ async function claveCorrecta(clave: string, guardado: string): Promise<boolean> 
 }
 
 /** Ajustes de la base, leídos una sola vez por petición. */
-async function ajustes(c: any): Promise<{ hash: string | null; generacion: number }> {
+async function ajustes(c: any): Promise<Ajustes> {
   const guardado = c.get('ajustes');
   if (guardado) return guardado;
   const { results } = await c.env.DB.prepare(
-    `SELECT clave, valor FROM ajustes WHERE clave IN ('clave_admin', 'generacion')`,
+    `SELECT clave, valor FROM ajustes
+      WHERE clave IN ('clave_admin', 'generacion', 'acceso', 'clave_lectura', 'generacion_lectura')`,
   ).all<{ clave: string; valor: string }>();
-  const mapa = Object.fromEntries((results || []).map((f) => [f.clave, f.valor]));
-  const datos = { hash: mapa.clave_admin || null, generacion: Number(mapa.generacion || 1) };
+  const mapa: Record<string, string> = Object.fromEntries(
+    (results || []).map((f: { clave: string; valor: string }) => [f.clave, f.valor]),
+  );
+  const datos: Ajustes = {
+    hash: mapa.clave_admin || null,
+    generacion: Number(mapa.generacion || 1),
+    // Sin fila, abierta: es como funcionaba antes de que esto existiera, y
+    // cerrarla por omisión dejaría a todo el mundo fuera sin haberlo pedido.
+    acceso: mapa.acceso === 'clave' ? 'clave' : 'publico',
+    guardada: mapa.clave_lectura || '',
+    generacionLectura: Number(mapa.generacion_lectura || 1),
+  };
   c.set('ajustes', datos);
   return datos;
 }
+
+/** Escribe un ajuste, creándolo si no estaba. */
+const guardarAjuste = (c: any, clave: string, valor: string, cuando: string) =>
+  c.env.DB.prepare(
+    `INSERT INTO ajustes (clave, valor, actualizado_en) VALUES (?, ?, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en`,
+  ).bind(clave, valor, cuando);
 
 /**
  * Comprueba la contraseña. Mientras no haya hash en la base vale la de
@@ -139,21 +170,52 @@ async function claveValida(c: any, clave: string): Promise<boolean> {
   return Boolean(c.env.ADMIN_PASSWORD) && igual(clave, c.env.ADMIN_PASSWORD);
 }
 
-async function sesionValida(c: any): Promise<boolean> {
-  const galleta = getCookie(c, COOKIE);
+/**
+ * Comprueba una galleta firmada: que la firma sea nuestra, que no haya
+ * caducado, que sea de quien dice ser y que su generación siga en curso.
+ */
+async function galletaValida(
+  c: any, nombre: string, quien: string, generacion: number,
+): Promise<boolean> {
+  const galleta = getCookie(c, nombre);
   if (!galleta) return false;
   const corte = galleta.lastIndexOf('.');
   if (corte < 1) return false;
   const cuerpo = galleta.slice(0, corte);
-  const firma = galleta.slice(corte + 1);
   const esperada = await firmar(cuerpo, c.env.SESSION_SECRET);
-  if (!igual(firma, esperada)) return false;
+  if (!igual(galleta.slice(corte + 1), esperada)) return false;
 
-  const [, exp, gen] = cuerpo.split(':');
+  const [tipo, exp, gen] = cuerpo.split(':');
+  // El tipo va firmado dentro: una galleta de lector no puede hacerse pasar por
+  // una de administración aunque alguien la cambie de nombre.
+  if (tipo !== quien) return false;
   if (Number(exp || 0) <= Math.floor(Date.now() / 1000)) return false;
-  // La generación cambia al cambiar la contraseña: las sesiones viejas caen.
-  const { generacion } = await ajustes(c);
+  // La generación sube al cambiar la contraseña o el acceso: lo viejo cae.
   return Number(gen || 0) === generacion;
+}
+
+async function sesionValida(c: any): Promise<boolean> {
+  const { generacion } = await ajustes(c);
+  return galletaValida(c, COOKIE, 'admin', generacion);
+}
+
+/** Quien no administra, pero ya demostró que sabe la clave de lectura. */
+async function sesionDeLector(c: any): Promise<boolean> {
+  const { generacionLectura } = await ajustes(c);
+  return galletaValida(c, COOKIE_LECTOR, 'lector', generacionLectura);
+}
+
+/**
+ * Si esta petición puede ver los libros. Con la biblioteca abierta, cualquiera;
+ * cerrada, quien administra o quien trae la galleta de lector.
+ */
+async function puedeLeer(c: any): Promise<boolean> {
+  const { acceso } = await ajustes(c);
+  if (acceso !== 'clave') return true;
+  // Quien administra entra siempre: si no, cerrar la biblioteca lo dejaría a él
+  // mismo fuera. `c.get('admin')` solo está puesto bajo /api/*, de ahí el respaldo.
+  if (c.get('admin') === true || (await sesionValida(c))) return true;
+  return sesionDeLector(c);
 }
 
 /* ---------- middleware ---------- */
@@ -168,18 +230,43 @@ const soloAdmin = async (c: any, next: any) => {
   await next();
 };
 
+const soloLectores = async (c: any, next: any) => {
+  if (!(await puedeLeer(c))) {
+    // El `codigo` lo mira el navegador para mandar a pedir la clave en vez de
+    // enseñar un error que no dice qué hacer. El texto es para quien lo lea.
+    return c.json(
+      { error: 'La biblioteca está cerrada. Hace falta la clave para entrar.', codigo: 'acceso' },
+      401,
+    );
+  }
+  await next();
+};
+
 /* ---------- sesión ---------- */
 
-app.get('/api/sesion', (c) => c.json({ admin: c.get('admin') }));
+app.get('/api/sesion', async (c) => {
+  const { acceso } = await ajustes(c);
+  return c.json({ admin: c.get('admin'), acceso, puede: await puedeLeer(c) });
+});
+
+async function ponerGalleta(
+  c: any, nombre: string, quien: string, generacion: number, duracion: number,
+) {
+  const exp = Math.floor(Date.now() / 1000) + duracion;
+  const cuerpo = `${quien}:${exp}:${generacion}:${b64url(crypto.getRandomValues(new Uint8Array(9)))}`;
+  setCookie(c, nombre, `${cuerpo}.${await firmar(cuerpo, c.env.SESSION_SECRET)}`, {
+    httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: duracion,
+  });
+}
 
 async function abrirSesion(c: any) {
   const { generacion } = await ajustes(c);
-  const exp = Math.floor(Date.now() / 1000) + DURACION_SESION;
-  const cuerpo = `admin:${exp}:${generacion}:${b64url(crypto.getRandomValues(new Uint8Array(9)))}`;
-  const galleta = `${cuerpo}.${await firmar(cuerpo, c.env.SESSION_SECRET)}`;
-  setCookie(c, COOKIE, galleta, {
-    httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: DURACION_SESION,
-  });
+  await ponerGalleta(c, COOKIE, 'admin', generacion, DURACION_SESION);
+}
+
+async function abrirSesionDeLector(c: any) {
+  const { generacionLectura } = await ajustes(c);
+  await ponerGalleta(c, COOKIE_LECTOR, 'lector', generacionLectura, DURACION_LECTOR);
 }
 
 app.post('/api/sesion', async (c) => {
@@ -230,14 +317,8 @@ app.post('/api/clave', soloAdmin, async (c) => {
   const { generacion } = await ajustes(c);
   const t = ahora();
   await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO ajustes (clave, valor, actualizado_en) VALUES ('clave_admin', ?, ?)
-       ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en`,
-    ).bind(await hashDeClave(nueva!), t),
-    c.env.DB.prepare(
-      `INSERT INTO ajustes (clave, valor, actualizado_en) VALUES ('generacion', ?, ?)
-       ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en`,
-    ).bind(String(generacion + 1), t),
+    guardarAjuste(c, 'clave_admin', await hashDeClave(nueva!), t),
+    guardarAjuste(c, 'generacion', String(generacion + 1), t),
   ]);
 
   // La sesión propia también cae: con la generación nueva, la cookie ya no vale.
@@ -245,9 +326,153 @@ app.post('/api/clave', soloAdmin, async (c) => {
   return c.json({ ok: true });
 });
 
+/* ---------- quién puede entrar a leer ---------- */
+
+/* La biblioteca nace abierta: quien tenga el enlace, lee. Cerrarla pone una
+   clave común —la que reparte quien administra— en vez de una cuenta por
+   persona: son conocidos, no usuarios, y llevar altas y bajas para esto sobra.
+
+   Esa clave se guarda RECUPERABLE, no en resumen, y es a propósito: no es la
+   contraseña de nadie, es el código de la puerta, y quien administra tiene que
+   poder volver a leerlo dentro de tres meses para dárselo a alguien más. Con un
+   resumen habría que cambiarla cada vez, echando a todos los demás. A cambio va
+   cifrada con SESSION_SECRET, que no vive en la base: una copia de la base sin
+   el secreto del Worker no la enseña. La de administración sí va en resumen,
+   que esa no se reparte y protege otra cosa. */
+
+async function claveDeCaja(secreto: string): Promise<CryptoKey> {
+  const material = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`caja:${secreto}`));
+  return crypto.subtle.importKey('raw', material, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function guardarEnCaja(texto: string, secreto: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cerrado = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv }, await claveDeCaja(secreto), new TextEncoder().encode(texto),
+  );
+  return `v1.${b64url(iv)}.${b64url(cerrado)}`;
+}
+
+async function abrirCaja(guardado: string, secreto: string): Promise<string> {
+  const [version, iv, cerrado] = String(guardado).split('.');
+  if (version !== 'v1' || !iv || !cerrado) return '';
+  try {
+    const claro = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: deB64url(iv) }, await claveDeCaja(secreto), deB64url(cerrado),
+    );
+    return new TextDecoder().decode(claro);
+  } catch {
+    // Si cambió SESSION_SECRET, lo guardado ya no se puede abrir. Se da por
+    // perdido y el panel pedirá una clave nueva; nadie se cuela por esto,
+    // porque una clave vacía no la acierta nadie.
+    return '';
+  }
+}
+
+const claveDeLectura = async (c: any): Promise<string> =>
+  abrirCaja((await ajustes(c)).guardada, c.env.SESSION_SECRET);
+
+/* Una clave que se pueda dictar por teléfono y copiar sin equivocarse: sin las
+   letras y cifras que se confunden entre sí (ni O ni 0, ni l ni 1) y partida en
+   grupos de cuatro. Doce signos de treinta y uno son de sobra para una puerta
+   que además tarda cuatro décimas en contestar a cada intento. */
+const ALFABETO = 'abcdefghjkmnpqrstuvwxyz23456789';   // 31 signos
+
+function claveSugerida(): string {
+  const letras: string[] = [];
+  while (letras.length < 12) {
+    for (const n of crypto.getRandomValues(new Uint8Array(16))) {
+      if (letras.length >= 12) break;
+      // 248 = 8 × 31: lo que pase de ahí se descarta, que si no las primeras
+      // letras del alfabeto saldrían más veces que las últimas.
+      if (n < 248) letras.push(ALFABETO[n % ALFABETO.length]);
+    }
+  }
+  return [0, 4, 8].map((i) => letras.slice(i, i + 4).join('')).join('-');
+}
+
+/* Los espacios de los extremos se quitan siempre, al ponerla y al comprobarla.
+   Esta clave viaja por mensajes y se pega desde ellos: un espacio de más al
+   copiar no debería dejar a nadie fuera, y en un código de puerta nunca es
+   intencionado. Pero tiene que quitarse en los DOS sitios o la clave que se
+   guardó no sería la que se acepta. */
+const claveLimpia = (valor: unknown): string => String(valor ?? '').trim();
+
+/** Devuelve el motivo del rechazo, o null si la clave de lectura sirve. */
+function revisarClaveDeLectura(clave: string): string | null {
+  if (clave.length < 6) return 'La clave de lectura debe tener al menos 6 caracteres.';
+  if (clave.length > 120) return 'La clave de lectura es demasiado larga.';
+  if (CLAVES_OBVIAS.includes(clave.toLowerCase().replace(/\s+/g, ''))) {
+    return 'Esa clave es demasiado fácil de adivinar. Elige otra.';
+  }
+  return null;
+}
+
+/** Cómo está la puerta. La clave solo la ve quien administra: es quien la reparte. */
+app.get('/api/acceso', async (c) => {
+  const { acceso } = await ajustes(c);
+  const datos: Record<string, unknown> = { modo: acceso, puede: await puedeLeer(c) };
+  if (c.get('admin')) datos.clave = await claveDeLectura(c);
+  return c.json(datos);
+});
+
+/** Entrar con la clave de lectura. */
+app.post('/api/acceso', async (c) => {
+  const { clave } = await c.req.json<{ clave?: string }>().catch(() => ({ clave: '' }));
+  const { acceso } = await ajustes(c);
+  if (acceso !== 'clave') return c.json({ ok: true });     // está abierta: no hay nada que pedir
+  const buena = await claveDeLectura(c);
+  if (!buena || !igual(claveLimpia(clave), buena)) {
+    // El mismo retardo que en el acceso de administración: probar claves en
+    // masa contra la puerta tampoco sale gratis.
+    await new Promise((r) => setTimeout(r, 400));
+    return c.json({ error: 'Esa no es la clave de la biblioteca.' }, 401);
+  }
+  await abrirSesionDeLector(c);
+  return c.json({ ok: true });
+});
+
+/** Una clave nueva para copiar. No se guarda aquí: la guarda el PUT si se acepta. */
+app.get('/api/acceso/sugerencia', soloAdmin, (c) => c.json({ clave: claveSugerida() }));
+
+app.put('/api/acceso', soloAdmin, async (c) => {
+  const { modo, clave } = await c.req.json<{ modo?: string; clave?: string }>()
+    .catch(() => ({} as { modo?: string; clave?: string }));
+  if (modo !== 'publico' && modo !== 'clave') {
+    return c.json({ error: 'No sé qué es ese modo de acceso.' }, 400);
+  }
+
+  const { acceso, generacionLectura } = await ajustes(c);
+  const actual = await claveDeLectura(c);
+  const t = ahora();
+  const escrituras = [guardarAjuste(c, 'acceso', modo, t)];
+
+  // Al cerrar sin escribir clave nueva se conserva la de antes: así se puede
+  // abrir y volver a cerrar sin tener que repartir otra a todo el mundo.
+  let nueva = actual;
+  if (modo === 'clave') {
+    nueva = claveLimpia(clave) || actual;
+    if (!nueva) return c.json({ error: 'Para cerrar la biblioteca hace falta una clave.' }, 400);
+    const problema = revisarClaveDeLectura(nueva);
+    if (problema) return c.json({ error: problema }, 400);
+    if (nueva !== actual) {
+      escrituras.push(guardarAjuste(c, 'clave_lectura', await guardarEnCaja(nueva, c.env.SESSION_SECRET), t));
+    }
+  }
+
+  // Cambiar de modo o de clave tira las sesiones de lector abiertas: si no,
+  // quien entró con la clave vieja se quedaría dentro para siempre. Sin cambios
+  // no se toca, que echar a todo el mundo por pulsar «Guardar» sería absurdo.
+  if (modo !== acceso || nueva !== actual) {
+    escrituras.push(guardarAjuste(c, 'generacion_lectura', String(generacionLectura + 1), t));
+  }
+  await c.env.DB.batch(escrituras);
+  return c.json({ modo, clave: modo === 'clave' ? nueva : '' });
+});
+
 /* ---------- catálogo ---------- */
 
-app.get('/api/libros', async (c) => {
+app.get('/api/libros', soloLectores, async (c) => {
   const admin = c.get('admin');
   const q = (c.req.query('q') || '').trim();
   const categoria = (c.req.query('categoria') || '').trim();
@@ -276,7 +501,7 @@ app.get('/api/libros', async (c) => {
   return c.json({ libros: results, categorias: cats.results, admin });
 });
 
-app.get('/api/libros/:id', async (c) => {
+app.get('/api/libros/:id', soloLectores, async (c) => {
   const libro = await c.env.DB.prepare(`SELECT * FROM libros WHERE id = ?`)
     .bind(c.req.param('id')).first();
   if (!libro) return c.json({ error: 'No existe ese libro' }, 404);
@@ -442,14 +667,14 @@ app.post('/api/portada/firma', soloAdmin, async (c) => {
 
 /* ---------- marcador de lectura ---------- */
 
-app.get('/api/marcador/:id', async (c) => {
+app.get('/api/marcador/:id', soloLectores, async (c) => {
   const fila = await c.env.DB.prepare(
     `SELECT pagina FROM marcadores WHERE libro_id = ? AND lector = 'general'`,
   ).bind(c.req.param('id')).first<{ pagina: number }>();
   return c.json({ pagina: fila?.pagina || 1 });
 });
 
-app.put('/api/marcador/:id', async (c) => {
+app.put('/api/marcador/:id', soloLectores, async (c) => {
   const { pagina } = await c.req.json<{ pagina: number }>();
   await c.env.DB.prepare(
     `INSERT INTO marcadores (libro_id, lector, pagina, actualizado_en) VALUES (?, 'general', ?, ?)
@@ -460,9 +685,37 @@ app.put('/api/marcador/:id', async (c) => {
 
 /* ---------- servir el archivo desde R2, con soporte de rangos ---------- */
 
+/* El archivo de un libro no cambia NUNCA: el id se acuña al subirlo y cambiar
+   el documento obliga a subir otro libro. Por eso se puede guardar un año y
+   marcarlo `immutable`: reabrir un EPUB de veinte megas deja de costar la
+   descarga entera, que en un teléfono con datos era la mitad de la espera. */
+const CACHE_ARCHIVO = 'private, max-age=31536000, immutable';
+
+/** `If-None-Match` puede traer varios etags, y el débil (`W/"…"`) vale igual. */
+function etagCoincide(cabecera: string, etag: string): boolean {
+  if (cabecera.trim() === '*') return true;
+  const pelado = (v: string) => v.trim().replace(/^W\//, '');
+  return cabecera.split(',').some((v) => pelado(v) === pelado(etag));
+}
+
 /** Servido desde R2: el propio bucket resuelve los rangos. */
 async function servirDesdeR2(c: any, clave: string, formato: string, descarga: string | null) {
   const cabeceraRango = c.req.header('range');
+
+  // Una recarga a mano se salta la caché del navegador pero manda el etag: si
+  // coincide, aquí se corta y no viajan los bytes. Con rango no aplica: eso lo
+  // pide PDF.js para un trozo concreto y siempre quiere la respuesta.
+  const siNoCoincide = c.req.header('if-none-match');
+  if (siNoCoincide && !cabeceraRango) {
+    const cabeza = await c.env.LIBROS_R2.head(clave);
+    if (cabeza && etagCoincide(siNoCoincide, cabeza.httpEtag)) {
+      return new Response(null, {
+        status: 304,
+        headers: { etag: cabeza.httpEtag, 'cache-control': CACHE_ARCHIVO, 'accept-ranges': 'bytes' },
+      });
+    }
+  }
+
   let rango: R2Range | undefined;
   if (cabeceraRango) {
     const m = /^bytes=(\d*)-(\d*)$/.exec(cabeceraRango.trim());
@@ -480,7 +733,7 @@ async function servirDesdeR2(c: any, clave: string, formato: string, descarga: s
   objeto.writeHttpMetadata(cabeceras);
   cabeceras.set('etag', objeto.httpEtag);
   cabeceras.set('accept-ranges', 'bytes');
-  cabeceras.set('cache-control', 'private, max-age=3600');
+  cabeceras.set('cache-control', CACHE_ARCHIVO);
   if (!cabeceras.get('content-type')) {
     cabeceras.set('content-type', FORMATOS[formato] || 'application/octet-stream');
   }
@@ -499,6 +752,8 @@ async function servirDesdeR2(c: any, clave: string, formato: string, descarga: s
 }
 
 app.get('/archivo/:id', async (c) => {
+  // Aquí no llega el middleware de /api/*, así que el guardia se pone a mano.
+  if (!(await puedeLeer(c))) return c.text('La biblioteca está cerrada.', 401);
   const libro = await c.env.DB.prepare(
     `SELECT formato, nombre_archivo, estado, clave_archivo FROM libros WHERE id = ?`,
   ).bind(c.req.param('id')).first<{
