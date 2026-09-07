@@ -31,11 +31,16 @@
   </div>
 
   <div class="lector__acciones">
-    <div class="grupo-tipo" role="group" aria-label="Tamaño del texto">
-      <button class="btn btn--texto btn--sm" id="texto-menos" type="button" aria-label="Reducir el texto">A−</button>
-      <button class="btn btn--texto btn--sm" id="texto-mas" type="button" aria-label="Agrandar el texto">A+</button>
+    <!-- Los mismos dos botones sirven para las dos cosas: agrandan el texto
+         cuando el libro refluye y acercan la página cuando es un PDF. -->
+    <div class="grupo-tipo" role="group" aria-label="Tamaño de la lectura">
+      <button class="btn btn--texto btn--sm" id="texto-menos" type="button" aria-label="Reducir">A−</button>
+      <button class="btn btn--texto btn--sm" id="nivel-zoom" type="button" hidden
+              aria-label="Ajustar la página a la pantalla">Ajustar</button>
+      <button class="btn btn--texto btn--sm" id="texto-mas" type="button" aria-label="Agrandar">A+</button>
     </div>
-    <button class="btn btn--icono btn--linea" id="btn-tema" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Cambiar tema">
+    <button class="btn btn--icono btn--linea" id="btn-tema" type="button" data-ciclo="claro sepia oscuro"
+            aria-label="Cambiar el tema de lectura">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
         <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>
       </svg>
@@ -59,7 +64,15 @@
       <p id="progreso-texto">Abriendo el libro…</p>
     </div>
     <div class="hoja__flujo" id="flujo" hidden></div>
-    <canvas class="hoja__lienzo" id="lienzo" hidden></canvas>
+
+    <!-- La zona del PDF se desplaza sola: al acercar, la página crece más que
+         la hoja y hay que poder recorrerla. -->
+    <div class="hoja__pdf" id="zona-pdf" hidden>
+      <div class="pdf__pagina" id="pdf-pagina">
+        <canvas class="hoja__lienzo" id="lienzo"></canvas>
+        <div class="pdf__texto" id="pdf-texto"></div>
+      </div>
+    </div>
   </div>
 
   <button class="paso paso--der" id="siguiente" type="button" aria-label="Página siguiente">
@@ -71,7 +84,10 @@
   <button class="btn btn--sm btn--linea oculto-escritorio" id="anterior-movil" type="button">Anterior</button>
   <label class="visualmente-oculto" for="deslizador">Ir a una página</label>
   <input class="deslizador" id="deslizador" type="range" min="1" max="1" value="1" step="1">
-  <span class="lector__cuenta" id="cuenta" aria-live="polite">— / —</span>
+  <button class="lector__cuenta" id="cuenta" type="button" title="Ir a una página">— / —</button>
+  <label class="visualmente-oculto" for="ir-pagina">Número de página</label>
+  <input class="lector__ir" id="ir-pagina" type="number" min="1" step="1" hidden>
+  <span class="visualmente-oculto" id="anuncio" aria-live="polite"></span>
   <button class="btn btn--sm btn--linea oculto-escritorio" id="siguiente-movil" type="button">Siguiente</button>
 </footer>
 

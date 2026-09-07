@@ -72,11 +72,20 @@
 }
 
 .hoja__flujo p { margin: 0 0 .9em; text-align: justify; text-justify: inter-word; orphans: 2; widows: 2; }
+/* Justificar sin partir palabras deja ríos de espacio en blanco; con guiones,
+   pero sin cortar sílabas de dos letras, que se leen como erratas. */
+.hoja__flujo { -webkit-hyphens: auto; hyphenate-limit-chars: 6 3 3; }
 .hoja__flujo h1, .hoja__flujo h2, .hoja__flujo h3, .hoja__flujo h4 {
   font-family: var(--serif); margin: 1.2em 0 .5em; break-after: avoid-column; line-height: 1.2;
+  text-wrap: balance; hyphens: manual;
 }
 .hoja__flujo h1 { font-size: 1.5em; } .hoja__flujo h2 { font-size: 1.3em; } .hoja__flujo h3 { font-size: 1.12em; }
-.hoja__flujo img { max-width: 100%; height: auto; display: block; margin: 1em auto; break-inside: avoid; }
+.hoja__flujo img {
+  max-width: 100%; height: auto; display: block; margin: 1em auto; break-inside: avoid;
+  /* Una ilustración más alta que la columna abre un hueco enorme antes de ella. */
+  max-height: 62vh; object-fit: contain;
+}
+.hoja__flujo :first-child { margin-block-start: 0; }
 .hoja__flujo blockquote {
   margin: 1em 0; padding-left: var(--s4);
   border-left: 3px solid var(--accent-sua); color: var(--text-mut); font-style: italic;
@@ -92,7 +101,42 @@
 .hoja__flujo .capitulo:first-child { break-before: auto; }
 .hoja__flujo a { color: var(--accent); }
 
-.hoja__lienzo { max-width: 100%; max-height: 100%; display: block; }
+/* ---------- PDF ---------- */
+
+/* La página del PDF vive en su propia zona desplazable: cuando se acerca, crece
+   más que la hoja y hay que poder recorrerla sin perder el marco. `safe center`
+   la centra mientras cabe y deja de centrarla en cuanto desborda, que si no el
+   principio de la página queda fuera de alcance. */
+.hoja__pdf {
+  position: absolute; inset: 0;
+  overflow: auto; overscroll-behavior: contain;
+  padding: var(--s4);
+  display: grid;
+  justify-content: safe center; align-content: safe center;
+  scrollbar-width: thin;
+}
+.pdf__pagina { position: relative; line-height: 0; }
+.hoja__lienzo { display: block; max-width: none; border-radius: 2px; box-shadow: var(--sh-1); }
+
+/* Capa de texto de PDF.js: letras transparentes colocadas encima del dibujo.
+   No se ven, pero se pueden seleccionar, copiar y buscar con Ctrl+F. */
+.pdf__texto {
+  position: absolute; inset: 0; overflow: clip;
+  line-height: 1; text-align: initial; text-size-adjust: none;
+  forced-color-adjust: none; transform-origin: 0 0;
+  opacity: 1; z-index: 1; caret-color: transparent;
+}
+.pdf__texto span, .pdf__texto br {
+  position: absolute; color: transparent; white-space: pre;
+  cursor: text; transform-origin: 0 0;
+}
+.pdf__texto ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.pdf__texto br::selection { background: transparent; }
+.pdf__texto .endOfContent {
+  display: block; position: absolute; inset: 100% 0 0;
+  z-index: 0; cursor: default; user-select: none;
+}
+.pdf__texto.seleccionando .endOfContent { top: 0; }
 
 /* ---------- carga ---------- */
 
@@ -120,7 +164,24 @@
   padding: var(--s3) var(--s5);
   background: var(--bg); border-top: 1px solid var(--border);
 }
-.lector__cuenta { font-size: var(--fs-sm); color: var(--text-mut); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lector__cuenta {
+  font: inherit; font-size: var(--fs-sm); color: var(--text-mut);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+  padding: 3px var(--s2); cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.lector__cuenta:hover { background: var(--surface-2); color: var(--text); }
+.lector__cuenta b { font-weight: 600; color: var(--text); }
+.lector__cuenta small { margin-inline-start: var(--s2); opacity: .75; }
+
+.lector__ir {
+  width: 5.5em; height: 30px; padding: 0 var(--s2);
+  font: inherit; font-size: var(--fs-sm); font-variant-numeric: tabular-nums;
+  text-align: center; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border-fuerte);
+  border-radius: var(--radius-sm);
+}
 
 .deslizador { flex: 1; appearance: none; height: 4px; border-radius: var(--radius-full); background: var(--border); cursor: pointer; }
 .deslizador::-webkit-slider-thumb {
@@ -141,4 +202,6 @@
   .hoja__flujo { padding: var(--s5) var(--s4); }
   .lector__pie { padding: var(--s3) var(--s4); gap: var(--s3); }
   .lector__titulo strong { max-width: 24ch; }
+  .lector__cuenta small { display: none; }
+  .hoja__pdf { padding: var(--s2); }
 }

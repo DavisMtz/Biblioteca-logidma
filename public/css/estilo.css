@@ -38,6 +38,27 @@
   --ancho: 1200px;
 }
 
+/* Sepia: papel viejo bajo luz cálida. Vive en el lector, donde la vista
+   aguanta ratos largos, no en el catálogo. */
+:root[data-tema="sepia"] {
+  --bg:        #ece1cd;
+  --surface:   #f8f1e1;
+  --surface-2: #e3d7bf;
+  --border:    #d9cbaf;
+  --border-fuerte: #bfae8c;
+  --text:      #382d20;
+  --text-mut:  #6b5a42;
+  --accent:    #8a4b12;
+  --accent-sua:#e8dac1;
+  --accent-fg: #fdf8ee;
+  --success:   #1c6b3f;
+  --warning:   #86560a;
+  --danger:    #9c2323;
+  --sh-1: 0 1px 2px rgba(60,44,20,.07), 0 1px 3px rgba(60,44,20,.09);
+  --sh-2: 0 4px 10px -2px rgba(60,44,20,.12), 0 2px 4px -2px rgba(60,44,20,.07);
+  --sh-3: 0 16px 32px -10px rgba(60,44,20,.20), 0 4px 10px -4px rgba(60,44,20,.12);
+}
+
 :root[data-tema="oscuro"] {
   --bg:        #14120f;
   --surface:   #1c1a16;
@@ -58,7 +79,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-tema="claro"]) {
+  :root:not([data-tema="claro"]):not([data-tema="sepia"]) {
     --bg:        #14120f;
     --surface:   #1c1a16;
     --surface-2: #24211c;

@@ -8,17 +8,30 @@ const Bib = (() => {
     try { tema ? localStorage.setItem(TEMA, tema) : localStorage.removeItem(TEMA); } catch { /* modo privado */ }
   }
 
+  const NOMBRE_TEMA = { claro: 'claro', sepia: 'sepia', oscuro: 'oscuro' };
+
+  /* El botón recorre los temas que le indique `data-ciclo`. La portada alterna
+     claro y oscuro; el lector añade el sepia, que solo tiene sentido leyendo. */
   function iniciarTema() {
     let guardado = null;
     try { guardado = localStorage.getItem(TEMA); } catch { /* sin almacenamiento */ }
     if (guardado) document.documentElement.dataset.tema = guardado;
     const boton = document.getElementById('btn-tema');
     if (!boton) return;
+
+    const ciclo = (boton.dataset.ciclo || 'claro oscuro').split(/\s+/);
+    const efectivo = () => document.documentElement.dataset.tema ||
+      (matchMedia('(prefers-color-scheme: dark)').matches ? 'oscuro' : 'claro');
+    const rotular = () => {
+      const actual = efectivo();
+      const siguiente = ciclo[(ciclo.indexOf(actual) + 1) % ciclo.length];
+      boton.title = `Tema ${NOMBRE_TEMA[actual] || actual} · cambiar a ${NOMBRE_TEMA[siguiente] || siguiente}`;
+    };
+
+    rotular();
     boton.addEventListener('click', () => {
-      const actual = document.documentElement.dataset.tema;
-      const oscuroDelSistema = matchMedia('(prefers-color-scheme: dark)').matches;
-      const esOscuro = actual ? actual === 'oscuro' : oscuroDelSistema;
-      aplicarTema(esOscuro ? 'claro' : 'oscuro');
+      aplicarTema(ciclo[(ciclo.indexOf(efectivo()) + 1) % ciclo.length]);
+      rotular();
     });
   }
 

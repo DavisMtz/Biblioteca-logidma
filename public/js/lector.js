@@ -1,6 +1,7 @@
 /* Lector paginado: PDF con PDF.js, todo lo demás con columnas CSS. */
 
 import * as pdfjsLib from '/vendor/pdfjs/pdf.min.mjs';
+import { TextLayer } from '/vendor/pdfjs/pdf.min.mjs';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
 
@@ -8,6 +9,8 @@ const $ = (id) => document.getElementById(id);
 const hoja = $('hoja');
 const flujo = $('flujo');
 const lienzo = $('lienzo');
+const zonaPdf = $('zona-pdf');
+const capaTexto = $('pdf-texto');
 const cargando = $('cargando');
 const cuenta = $('cuenta');
 const deslizador = $('deslizador');
@@ -24,6 +27,13 @@ let pdf = null;
 let tareaRender = null;
 let tamanoTexto = 18;
 const CLAVE_TAMANO = 'bib.tamano';
+
+/* Acercamiento del PDF. Los dos primeros son ajustes vivos —se recalculan con
+   la ventana—; el resto son escalas fijas sobre el tamaño real del papel. */
+const ZOOM = ['ajustar', 'ancho', 1, 1.25, 1.5, 2, 3];
+const CLAVE_ZOOM = 'bib.zoom';
+let zoom = 'ajustar';
+const rotuloZoom = (z) => (z === 'ajustar' ? 'Ajustar' : z === 'ancho' ? 'Ancho' : `${Math.round(z * 100)} %`);
 
 /* ---------------- carga del libro ---------------- */
 
@@ -115,32 +125,54 @@ async function abrirPdf() {
 
   modo = 'pdf';
   total = pdf.numPages;
-  lienzo.hidden = false;
+  zonaPdf.hidden = false;
   flujo.hidden = true;
-  // El tamaño del texto solo aplica al texto refluido; en un PDF manda el archivo.
-  $('texto-mas').disabled = true;
-  $('texto-menos').disabled = true;
+
+  try {
+    const guardado = localStorage.getItem(CLAVE_ZOOM);
+    if (guardado && ZOOM.includes(guardado === 'ajustar' || guardado === 'ancho' ? guardado : Number(guardado))) {
+      zoom = guardado === 'ajustar' || guardado === 'ancho' ? guardado : Number(guardado);
+    }
+  } catch { /* sin almacenamiento */ }
+
+  // Aquí A− y A+ dejan de tocar el texto y pasan a acercar la página.
+  $('texto-menos').setAttribute('aria-label', 'Alejar la página');
+  $('texto-mas').setAttribute('aria-label', 'Acercar la página');
+  $('nivel-zoom').hidden = false;
+  pintarNivelZoom();
   if (!libro.paginas) guardarPaginas(total);
   actualizarControles();
   await pintarPdf();
   addEventListener('resize', reajustar);
 }
 
+/** Cuánto hay que agrandar el papel para lo que pide el nivel de acercamiento. */
+function escalaPara(base) {
+  const margen = 2 * 16 + 4;                       // el relleno de la zona
+  const anchoLibre = Math.max(120, zonaPdf.clientWidth - margen);
+  const altoLibre = Math.max(120, zonaPdf.clientHeight - margen);
+  if (zoom === 'ancho') return anchoLibre / base.width;
+  if (zoom === 'ajustar') return Math.min(anchoLibre / base.width, altoLibre / base.height);
+  return zoom;
+}
+
 async function pintarPdf() {
   if (tareaRender) { try { tareaRender.cancel(); } catch { /* ya terminó */ } }
   const hojaPdf = await pdf.getPage(pagina);
 
-  const disponibleAncho = hoja.clientWidth - 32;
-  const disponibleAlto = hoja.clientHeight - 32;
   const base = hojaPdf.getViewport({ scale: 1 });
-  const escala = Math.min(disponibleAncho / base.width, disponibleAlto / base.height);
+  const escala = escalaPara(base);
+  // El lienzo se dibuja al doble de puntos en pantallas finas y luego se
+  // encoge por CSS: así el texto escaneado no sale con los bordes deshechos.
   const nitidez = Math.min(window.devicePixelRatio || 1, 2);
   const vista = hojaPdf.getViewport({ scale: escala * nitidez });
+  const vistaCss = hojaPdf.getViewport({ scale: escala });
 
   lienzo.width = Math.floor(vista.width);
   lienzo.height = Math.floor(vista.height);
-  lienzo.style.width = `${Math.floor(vista.width / nitidez)}px`;
-  lienzo.style.height = `${Math.floor(vista.height / nitidez)}px`;
+  lienzo.style.width = `${Math.floor(vistaCss.width)}px`;
+  lienzo.style.height = `${Math.floor(vistaCss.height)}px`;
+  pintarCapaTexto(hojaPdf, vistaCss);
 
   // Un fundido corto disimula el instante en que el lienzo se repinta.
   Bib.animar((tl) => tl.fromTo(lienzo, { opacity: 0.4 }, { opacity: 1, duration: 0.35 }), { remate: 600 });
@@ -165,6 +197,52 @@ async function pintarPdf() {
   ]);
 }
 
+/* Letras invisibles encima del dibujo: dejan seleccionar, copiar y buscar con
+   Ctrl+F. En un libro escaneado no hay texto que colocar y la capa queda vacía,
+   sin estorbar. */
+let capaEnCurso = 0;
+async function pintarCapaTexto(hojaPdf, vista) {
+  const turno = ++capaEnCurso;
+  capaTexto.replaceChildren();
+  capaTexto.style.width = `${Math.floor(vista.width)}px`;
+  capaTexto.style.height = `${Math.floor(vista.height)}px`;
+  capaTexto.style.setProperty('--scale-factor', String(vista.scale));
+  capaTexto.style.setProperty('--total-scale-factor', String(vista.scale));
+  try {
+    const capa = new TextLayer({
+      textContentSource: hojaPdf.streamTextContent({ includeMarkedContent: true }),
+      container: capaTexto,
+      viewport: vista,
+    });
+    await capa.render();
+    if (turno !== capaEnCurso) capaTexto.replaceChildren();   // llegó tarde: manda la página nueva
+  } catch { /* sin texto que colocar: es un escaneo */ }
+}
+
+/* Detalle de PDF.js: mientras se arrastra la selección, el ancla del final
+   sube para que se pueda seleccionar hasta el borde de la página. */
+capaTexto.addEventListener('pointerdown', () => {
+  capaTexto.classList.add('seleccionando');
+  addEventListener('pointerup', () => capaTexto.classList.remove('seleccionando'), { once: true });
+});
+
+function pintarNivelZoom() {
+  const boton = $('nivel-zoom');
+  boton.textContent = rotuloZoom(zoom);
+  boton.setAttribute('aria-label', `Acercamiento ${rotuloZoom(zoom)}; volver a ajustar a la pantalla`);
+  $('texto-menos').disabled = ZOOM.indexOf(zoom) <= 0;
+  $('texto-mas').disabled = ZOOM.indexOf(zoom) >= ZOOM.length - 1;
+}
+
+async function cambiarZoom(valor) {
+  if (modo !== 'pdf' || valor === zoom) return;
+  zoom = valor;
+  try { localStorage.setItem(CLAVE_ZOOM, String(zoom)); } catch { /* sin almacenamiento */ }
+  pintarNivelZoom();
+  await pintarPdf();
+  zonaPdf.scrollTop = 0;
+}
+
 /* ---------------- texto paginado ---------------- */
 
 async function abrirTexto() {
@@ -175,7 +253,7 @@ async function abrirTexto() {
 
   modo = 'texto';
   flujo.hidden = false;
-  lienzo.hidden = true;
+  zonaPdf.hidden = true;
   flujo.innerHTML = html;
   progreso(95, 'Repartiendo en páginas…');
 
@@ -240,7 +318,7 @@ function colocar(animar = true) {
 /* ---------------- navegación ---------------- */
 
 function actualizarControles() {
-  cuenta.textContent = `${pagina} / ${total}`;
+  pintarCuenta(pagina);
   deslizador.max = String(total);
   deslizador.value = String(pagina);
   btnAnterior.disabled = pagina <= 1;
@@ -254,19 +332,66 @@ async function ir(destino) {
   if (nueva === pagina) return;
   pagina = nueva;
   actualizarControles();
-  if (modo === 'pdf') await pintarPdf();
+  if (modo === 'pdf') { zonaPdf.scrollTop = 0; await pintarPdf(); }
   else colocar(true);
   apuntarMarcador();
 }
+
+/** El porcentaje dice de un vistazo cuánto queda; el número solo, no. */
+function pintarCuenta(n) {
+  const avance = total > 1 ? Math.round(((n - 1) / (total - 1)) * 100) : 100;
+  cuenta.innerHTML = `<b>${n}</b> / ${total}<small>${avance} %</small>`;
+  $('anuncio').textContent = `Página ${n} de ${total}`;
+}
+
+/* Pulsar el contador abre un hueco para escribir la página: en un libro de
+   cuatrocientas hojas, arrastrar el deslizador hasta la 287 es una tortura. */
+const campoIr = $('ir-pagina');
+function abrirSalto() {
+  campoIr.max = String(total);
+  campoIr.value = String(pagina);
+  campoIr.hidden = false;
+  cuenta.hidden = true;
+  campoIr.focus();
+  campoIr.select();
+}
+function cerrarSalto(destino) {
+  campoIr.hidden = true;
+  cuenta.hidden = false;
+  if (destino) ir(destino);
+}
+cuenta.addEventListener('click', abrirSalto);
+campoIr.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); cerrarSalto(Number(campoIr.value)); }
+  if (e.key === 'Escape') { e.preventDefault(); cerrarSalto(0); }
+});
+campoIr.addEventListener('blur', () => cerrarSalto(0));
 
 const teclas = {
   ArrowRight: 1, PageDown: 1, ' ': 1, ArrowDown: 1,
   ArrowLeft: -1, PageUp: -1, ArrowUp: -1,
 };
+const VERTICALES = new Set(['ArrowUp', 'ArrowDown', ' ']);
+
 function teclado(e) {
   if (e.target.matches('input, textarea')) return;
   if (e.key === 'Home') { e.preventDefault(); return void ir(1); }
   if (e.key === 'End') { e.preventDefault(); return void ir(total); }
+
+  // Con la página acercada, arriba y abajo recorren el papel; solo cuando ya no
+  // queda nada que recorrer pasan a cambiar de hoja. Izquierda y derecha
+  // siempre cambian de hoja.
+  if (modo === 'pdf' && VERTICALES.has(e.key)) {
+    const sobra = zonaPdf.scrollHeight - zonaPdf.clientHeight;
+    const abajo = e.key !== 'ArrowUp';
+    const tope = abajo ? sobra - zonaPdf.scrollTop > 2 : zonaPdf.scrollTop > 2;
+    if (sobra > 4 && tope) {
+      e.preventDefault();
+      zonaPdf.scrollBy({ top: (abajo ? 1 : -1) * zonaPdf.clientHeight * 0.85, behavior: 'smooth' });
+      return;
+    }
+  }
+
   const salto = teclas[e.key];
   if (!salto) return;
   e.preventDefault();
@@ -292,9 +417,7 @@ btnAnterior.addEventListener('click', () => ir(pagina - 1));
 btnSiguiente.addEventListener('click', () => ir(pagina + 1));
 $('anterior-movil').addEventListener('click', () => ir(pagina - 1));
 $('siguiente-movil').addEventListener('click', () => ir(pagina + 1));
-deslizador.addEventListener('input', () => {
-  cuenta.textContent = `${deslizador.value} / ${total}`;
-});
+deslizador.addEventListener('input', () => pintarCuenta(Number(deslizador.value)));
 deslizador.addEventListener('change', () => ir(Number(deslizador.value)));
 
 /* ---------------- tamaño del texto ---------------- */
@@ -312,8 +435,16 @@ function cambiarTamano(delta) {
     actualizarControles();
   });
 }
-$('texto-mas').addEventListener('click', () => cambiarTamano(1));
-$('texto-menos').addEventListener('click', () => cambiarTamano(-1));
+/* Un solo par de botones para las dos formas de leer: agrandan la letra cuando
+   el texto refluye y acercan el papel cuando es un PDF. */
+function ajustar(delta) {
+  if (modo !== 'pdf') return cambiarTamano(delta);
+  const siguiente = ZOOM[Math.max(0, Math.min(ZOOM.length - 1, ZOOM.indexOf(zoom) + delta))];
+  cambiarZoom(siguiente);
+}
+$('texto-mas').addEventListener('click', () => ajustar(1));
+$('texto-menos').addEventListener('click', () => ajustar(-1));
+$('nivel-zoom').addEventListener('click', () => cambiarZoom('ajustar'));
 
 /* Al cambiar el tamaño de la ventana cambia el reparto: se conserva
    la posición relativa, no el número de página. */
