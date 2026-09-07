@@ -9,28 +9,87 @@
   display: flex; align-items: flex-end; justify-content: space-between;
   gap: var(--s6); flex-wrap: wrap;
   padding-block: var(--s7) var(--s5);
+  border-bottom: 1px solid var(--border);
 }
-.portada h1 { font-size: var(--fs-3xl); }
-.portada__sub { color: var(--text-mut); max-width: 56ch; margin-top: var(--s2); }
-.portada__cifras { display: flex; gap: var(--s6); margin: 0; }
-.portada__cifras dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--text-mut); }
-.portada__cifras dd { margin: 0; font-family: var(--serif); font-size: var(--fs-2xl); font-variant-numeric: tabular-nums; }
+/* El titular crece con la pantalla, pero no se estira a lo ancho: un titular
+   de veinte palabras por línea deja de leerse como titular. */
+.portada h1 {
+  font-size: clamp(30px, 4.2vw, 46px);
+  letter-spacing: -.022em; max-width: 19ch;
+}
+/* Las palabras se parten en `span` para poder entrar una a una. Nacen en su
+   sitio: si GSAP no llega a correr, esto no cambia nada. */
+.portada h1 .palabra { display: inline-block; will-change: transform; }
+.portada__sub { color: var(--text-mut); max-width: 52ch; margin-top: var(--s3); }
 
-.filtros { display: flex; gap: var(--s2); flex-wrap: wrap; padding-block: var(--s2) var(--s5); }
+.portada__cifras { display: flex; gap: var(--s7); margin: 0; }
+.portada__cifras > div { display: grid; gap: 2px; }
+.portada__cifras dt {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
+  color: var(--text-mut); font-weight: 600;
+}
+.portada__cifras dd {
+  margin: 0; font-family: var(--serif); line-height: 1;
+  font-size: clamp(26px, 3.2vw, 36px); font-variant-numeric: tabular-nums;
+}
+
+/* Una sola fila que se desliza, no una rejilla que salta de alto. Con las
+   pastillas repartidas en dos o tres líneas, cada vez que se filtra cambia el
+   número de líneas y toda la estantería da un brinco hacia arriba o hacia
+   abajo. En una tira, filtrar solo cambia lo que hay dentro de la tira. */
+.filtros {
+  position: relative;
+  display: flex; gap: var(--s2); flex-wrap: nowrap;
+  padding-block: var(--s4);
+  overflow-x: auto; overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Sin `scroll-snap`: con él, el navegador engancha el primer filtro al borde
+     de la caja y se salta el relleno, así que la tira quedaba un par de
+     dedos a la izquierda del titular y de los libros. Aquí no hace falta
+     encajar nada: al elegir una categoría ya se acerca sola. */
+}
+.filtros::-webkit-scrollbar { display: none; }
+
+/* La pastilla que va detrás del filtro activo y se desliza de uno a otro. Solo
+   entra en juego cuando el guion la coloca (`data-pastilla`); mientras tanto
+   manda la regla de abajo, que pinta el propio botón. Así el filtro activo se
+   distingue igual aunque no corra nada. */
+.filtros__pastilla {
+  position: absolute; left: 0; top: 0; z-index: 0;
+  border-radius: var(--radius-full); background: var(--accent);
+  pointer-events: none; opacity: 0;
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.filtros[data-pastilla="1"] .filtros__pastilla { opacity: 1; }
+
 .filtro {
+  position: relative; z-index: 1; flex: none;
   font: inherit; font-size: var(--fs-sm); font-weight: 600;
-  padding: 6px var(--s3); border-radius: var(--radius-full);
+  padding: 7px var(--s4); border-radius: var(--radius-full);
   border: 1px solid var(--border-fuerte); background: transparent; color: var(--text-mut);
-  cursor: pointer; transition: background .16s var(--ease), color .16s var(--ease), border-color .16s var(--ease);
+  cursor: pointer; white-space: nowrap;
+  transition: background .18s var(--ease), color .18s var(--ease),
+              border-color .18s var(--ease), transform .18s var(--ease);
 }
 .filtro:hover { background: var(--surface-2); color: var(--text); }
+.filtro:active { transform: scale(.96); }
 .filtro[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+/* Con pastilla, el botón se quita de en medio y deja que se le vea por debajo. */
+.filtros[data-pastilla="1"] .filtro[aria-pressed="true"] {
+  background: transparent; border-color: transparent; color: var(--accent-fg);
+}
+/* La cuenta pesa menos que el nombre: es un dato, no una etiqueta. */
+.filtro span { opacity: .62; font-weight: 500; font-variant-numeric: tabular-nums; }
 
 .rejilla {
-  display: grid; gap: var(--s5);
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  padding-bottom: var(--s8);
+  display: grid; gap: var(--s6) var(--s5);
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  padding-block: var(--s5) var(--s8);
+  /* Mientras llega el catálogo nuevo, lo viejo se apaga a medias: la búsqueda
+     acusa recibo antes de tener la respuesta. */
+  transition: opacity .2s var(--ease);
 }
+.rejilla[data-cargando="1"] { opacity: .45; }
 
 .libro {
   display: flex; flex-direction: column; gap: var(--s3);
@@ -40,46 +99,120 @@
      y una transición de CSS sobre la misma propiedad pelearía con él. */
 }
 /* La elevación del hover vive en la portada, en su propia capa. */
-.libro:hover .libro__portada { transform: translateY(-4px); box-shadow: var(--sh-3); }
+.libro:hover .libro__portada { transform: translateY(-6px); box-shadow: var(--sh-3); }
+/* El foco se pinta sobre la tapa, no sobre el enlace: el enlace incluye el
+   texto de abajo y el recuadro saldría desproporcionado. */
+.libro:focus-visible { outline: none; }
+.libro:focus-visible .libro__portada { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 .libro__portada {
   position: relative; aspect-ratio: 3 / 4.2;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  box-shadow: var(--sh-2);
+  /* Un filo de un píxel además de la sombra: sobre papel claro, una tapa clara
+     sin filo se deshace contra el fondo. */
+  box-shadow: var(--sh-2), 0 0 0 1px var(--filo-tapa);
   overflow: hidden;
-  transition: box-shadow .2s var(--ease), transform .2s var(--ease);
+  /* La perspectiva vive aquí y la inclinación en la lámina de dentro: así el
+     CSS puede seguir moviendo esta caja sin pelearse con GSAP por el mismo
+     `transform`. */
+  perspective: 900px;
+  transition: box-shadow .22s var(--ease), transform .22s var(--ease);
   /* El lomo: una sombra interior a la izquierda, como un libro cerrado. */
-  --lomo: linear-gradient(90deg, rgba(0,0,0,.22) 0, rgba(0,0,0,.06) 7px, rgba(0,0,0,0) 16px);
+  --lomo: linear-gradient(90deg, rgba(0,0,0,.24) 0, rgba(0,0,0,.07) 8px, rgba(0,0,0,0) 18px);
 }
-.libro__portada::after { content: ""; position: absolute; inset: 0; background: var(--lomo); pointer-events: none; }
-.libro__portada img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Lomo arriba del todo, por encima de la lámina y del reflejo: es la forma del
+   libro, no un adorno de la tapa. */
+.libro__portada::after {
+  content: ""; position: absolute; inset: 0; z-index: 3;
+  background: var(--lomo); pointer-events: none;
+}
+
+/* La tapa. Es lo único que se inclina y lo único que se acerca. */
+.libro__lamina {
+  position: absolute; inset: 0; display: block;
+  transform-origin: 50% 50%;
+  /* Un pelo más grande de la cuenta: al inclinarse, los bordes de la tapa no
+     llegan a despegarse de la caja y no se ve el fondo por las esquinas. */
+  transform: scale(1.012);
+}
+.libro__lamina img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* El reflejo que la cruza al pasar por encima. Nace invisible y sin GSAP se
+   queda invisible: no esconde nada, solo adorna. */
+.libro__brillo {
+  position: absolute; inset: -30% -60%; z-index: 2; display: block;
+  pointer-events: none; opacity: 0;
+  background: linear-gradient(105deg,
+    transparent 40%,
+    rgba(255,255,255,.34) 47%,
+    rgba(255,255,255,.10) 54%,
+    transparent 62%);
+}
 
 /* Portada tipográfica cuando el libro no trae imagen. */
 .libro__generada {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; justify-content: space-between;
-  padding: var(--s4) var(--s4) var(--s3) var(--s5);
+  padding: var(--s5) var(--s4) var(--s4) var(--s5);
   background: linear-gradient(160deg, var(--tono-a), var(--tono-b));
   color: #fdfaf5;
 }
-.libro__generada span { font-family: var(--serif); font-size: var(--fs-lg); line-height: 1.2; padding-right: 42px;
-  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
-.libro__generada small { font-size: var(--fs-xs); letter-spacing: .1em; text-transform: uppercase; opacity: .8; }
-
-.libro__formato {
-  position: absolute; top: var(--s2); right: var(--s2); z-index: 1;
-  font-size: 10px; font-weight: 800; letter-spacing: .08em;
-  padding: 3px 7px; border-radius: var(--radius-sm);
-  background: rgba(20,16,12,.72); color: #fff; backdrop-filter: blur(4px);
+/* Un filete impreso por dentro, como el de una encuadernación, y un
+   oscurecimiento hacia las esquinas para que no quede plana. */
+.libro__generada::before {
+  content: ""; position: absolute; inset: 10px 9px;
+  border: 1px solid rgba(240, 228, 205, .26); border-radius: 2px;
+  pointer-events: none;
 }
-.libro__estado { position: absolute; top: var(--s2); left: var(--s2); z-index: 1; }
+.libro__generada::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 90% at 30% 15%, transparent 40%, rgba(0,0,0,.28) 100%);
+}
+.libro__generada span { position: relative; z-index: 1;
+  font-family: var(--serif); font-size: var(--fs-lg); line-height: 1.22; padding-right: 42px;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.libro__generada small { position: relative; z-index: 1;
+  font-size: 11px; letter-spacing: .14em; text-transform: uppercase; opacity: .78; }
 
-.libro__titulo { font-family: var(--serif); font-size: var(--fs-md); font-weight: 600; line-height: 1.25;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* La insignia se mantiene discreta hasta que le prestas atención: al pasar por
+   encima sube de tono. Es un dato de servicio, no el protagonista de la tapa. */
+.libro__formato {
+  position: absolute; top: var(--s3); right: var(--s3); z-index: 4;
+  font-size: 10px; font-weight: 800; letter-spacing: .08em;
+  padding: 3px 8px; border-radius: var(--radius-full);
+  background: rgba(18, 14, 10, .58); color: #fff;
+  border: 1px solid rgba(255, 255, 255, .16);
+  backdrop-filter: blur(6px) saturate(1.3);
+  opacity: .82;
+  transition: opacity .2s var(--ease), background .2s var(--ease);
+}
+.libro:hover .libro__formato { opacity: 1; background: rgba(18, 14, 10, .74); }
+.libro__estado { position: absolute; top: var(--s3); left: var(--s3); z-index: 4; }
+
+.libro__titulo {
+  font-family: var(--serif); font-size: var(--fs-md); font-weight: 600; line-height: 1.28;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  /* Dos renglones reservados siempre. Si un título ocupa dos y el de al lado
+     uno, el autor y los datos de cada tarjeta quedan a distinta altura y la
+     fila entera se lee descuadrada. */
+  min-height: calc(1.28em * 2);
+  transition: color .18s var(--ease);
+}
+.libro:hover .libro__titulo { color: var(--accent); }
 .libro__autor { font-size: var(--fs-sm); color: var(--text-mut); }
-.libro__meta { font-size: var(--fs-xs); color: var(--text-mut); display: flex; gap: var(--s2); flex-wrap: wrap; }
-.libro__datos { display: flex; flex-direction: column; gap: 2px; }
+.libro__meta {
+  font-size: var(--fs-xs); color: var(--text-mut);
+  display: flex; gap: var(--s2); flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+/* El punto de separación lo pone el CSS delante de cada dato menos el primero:
+   si un dato se esconde, su punto se esconde con él. */
+.libro__meta span + span::before {
+  content: "·"; opacity: .45; margin-inline: var(--s2) 0;
+  padding-inline-end: var(--s2);
+}
+.libro__datos { display: flex; flex-direction: column; gap: 3px; }
 
 .pie { border-top: 1px solid var(--border); padding-block: var(--s5); margin-top: auto; }
 .pie__fila { display: flex; gap: var(--s2); align-items: center; font-size: var(--fs-sm); color: var(--text-mut); }
@@ -87,8 +220,24 @@
 .pie a:hover { color: var(--accent); }
 
 @media (max-width: 640px) {
-  .portada { padding-block: var(--s5) var(--s4); }
-  .portada h1 { font-size: var(--fs-2xl); }
-  .rejilla { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--s4); }
+  .portada { padding-block: var(--s6) var(--s5); gap: var(--s5); }
+  .portada h1 { max-width: 16ch; }
+  .portada__cifras { gap: var(--s6); }
+  .rejilla { grid-template-columns: repeat(auto-fill, minmax(144px, 1fr)); gap: var(--s5) var(--s4); }
   .contenedor { padding-inline: var(--s4); }
+  /* La tira de filtros llega hasta los bordes de la pantalla: cortada por el
+     margen del contenedor parece que se acaba ahí, y hay más a la derecha.
+     El relleno va DOBLE porque el margen negativo ya se comió uno: así el
+     primer filtro queda alineado con el titular y con los libros, y lo que
+     desborda se pierde por el borde en vez de por una raya invisible. */
+  .filtros {
+    margin-inline: calc(var(--s4) * -1);
+    padding-inline: calc(var(--s4) * 2);
+    padding-block: var(--s4);
+  }
+  /* En dos columnas estrechas los tres datos no caben en una línea y el año se
+     caía solo a la siguiente. Se va el peso, que es el que menos dice. */
+  .libro__peso { display: none; }
+  .libro__generada span { font-size: var(--fs-md); padding-right: 34px; }
+  .libro__generada::before { inset: 8px 7px; }
 }

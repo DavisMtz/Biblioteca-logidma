@@ -9,7 +9,7 @@
      /archivo/*  — los documentos van por peticiones con rango (206) y pesan
                    decenas de megas; la Cache API no sabe responder rangos. */
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `biblioteca-${VERSION}`;
 
 /* El esqueleto: lo justo para que la biblioteca abra sin conexión. */

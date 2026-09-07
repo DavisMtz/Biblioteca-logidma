@@ -136,6 +136,47 @@ Decisiones que no se deducen mirando el código:
   quedaba por debajo de la de abajo, invisible. Eso pasa justo en los
   navegadores dentro de una app, que es por donde llega un enlace compartido.
 
+- **El movimiento nunca es lo que hace visible algo.** Todo nace en su sitio en
+  el CSS y GSAP solo lo trae desde otro lado, así que si no llega a correr
+  —pestaña de fondo, GSAP que no cargó, movimiento reducido— la página se ve
+  igual, sin adorno. `Bib.animar` lo sostiene: si el navegador congela los
+  fotogramas a media animación, remata al estado final en vez de dejar algo a
+  medio revelar. El catálogo se prueba con GSAP servido como 404 justamente para
+  comprobar que sigue entero.
+
+- **Filtrar mueve las tarjetas, no las rehace.** Las que siguen estando se
+  reaprovechan y solo cambian de sitio; recrearlas obligaría al navegador a
+  pedir otra vez cada portada y a descodificarla, y filtrar pasaría de ser
+  instantáneo a parpadear entero. El trayecto lo anima Flip (`gsap-flip.min.js`,
+  solo en el catálogo), que mide dónde estaba cada tarjeta y dónde acaba. La
+  secuencia es en dos tiempos a propósito: primero se van las que no encajan y
+  luego las demás cierran filas, porque todo a la vez no se entiende.
+
+- **Las tarjetas se revelan al asomarse, con `IntersectionObserver` y no con
+  ScrollTrigger.** Para un revelado sencillo no hacía falta otro plugin, y el
+  aviso se pide 160 px ANTES de que la tarjeta llegue a verse: así el fotograma
+  en que GSAP la pone a cero ocurre fuera de la pantalla y nunca se ve un
+  parpadeo.
+
+- **La portada del libro va en tres capas.** La tapa (`.libro__lamina`) es lo
+  único que se inclina bajo el puntero, el reflejo (`.libro__brillo`) la cruza al
+  pasar por encima, y las etiquetas se quedan quietas: si se inclinaran con la
+  tapa parecerían pegadas al libro en vez de puestas encima. Separarlas también
+  evita que el CSS y GSAP se peleen por el mismo `transform` —la elevación es
+  del CSS, la inclinación es de GSAP—, que es el fallo clásico de mezclar los
+  dos. Nada de esto existe en una pantalla táctil: ahí no hay «pasar por
+  encima», y fingirlo deja la tapa torcida después de tocarla.
+
+- **En el teléfono la cabecera se queda en una fila.** Con la marca escrita, el
+  buscador se iba a una segunda fila; como la cabecera está pegada arriba, esa
+  fila se llevaba ciento sesenta píxeles de pantalla para siempre en un sitio
+  donde lo que hay que ver son portadas. Se queda el icono y el nombre sigue ahí
+  para quien lo lea con un lector de pantalla.
+
+- **La tira de filtros no lleva `scroll-snap`.** Con él, el navegador engancha el
+  primer filtro al borde de la caja y se salta el relleno, así que la tira
+  quedaba un par de dedos a la izquierda del titular y de los libros.
+
 - **La portada no pasa por el Worker:** el navegador pide una firma
   (`/api/portada/firma`) y sube directo a Cloudinary. El `api_secret` no sale del
   servidor y el destino lo decide él, no el cliente.

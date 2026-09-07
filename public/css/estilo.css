@@ -26,6 +26,7 @@
 
   --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-full: 999px;
 
+  --filo-tapa: rgba(30, 22, 12, .07);
   --sh-1: 0 1px 2px rgba(30,22,12,.05), 0 1px 3px rgba(30,22,12,.08);
   --sh-2: 0 4px 10px -2px rgba(30,22,12,.10), 0 2px 4px -2px rgba(30,22,12,.06);
   --sh-3: 0 16px 32px -10px rgba(30,22,12,.18), 0 4px 10px -4px rgba(30,22,12,.10);
@@ -54,6 +55,7 @@
   --success:   #1c6b3f;
   --warning:   #86560a;
   --danger:    #9c2323;
+  --filo-tapa: rgba(60, 44, 20, .10);
   --sh-1: 0 1px 2px rgba(60,44,20,.07), 0 1px 3px rgba(60,44,20,.09);
   --sh-2: 0 4px 10px -2px rgba(60,44,20,.12), 0 2px 4px -2px rgba(60,44,20,.07);
   --sh-3: 0 16px 32px -10px rgba(60,44,20,.20), 0 4px 10px -4px rgba(60,44,20,.12);
@@ -73,6 +75,7 @@
   --success:   #57c08a;
   --warning:   #d9ad55;
   --danger:    #e57a7a;
+  --filo-tapa: rgba(255, 248, 235, .09);
   --sh-1: 0 1px 2px rgba(0,0,0,.4);
   --sh-2: 0 4px 10px -2px rgba(0,0,0,.45);
   --sh-3: 0 16px 32px -10px rgba(0,0,0,.55);
@@ -93,7 +96,8 @@
     --success:   #57c08a;
     --warning:   #d9ad55;
     --danger:    #e57a7a;
-    --sh-1: 0 1px 2px rgba(0,0,0,.4);
+    --filo-tapa: rgba(255, 248, 235, .09);
+  --sh-1: 0 1px 2px rgba(0,0,0,.4);
     --sh-2: 0 4px 10px -2px rgba(0,0,0,.45);
     --sh-3: 0 16px 32px -10px rgba(0,0,0,.55);
   }
@@ -123,7 +127,15 @@ a { color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    /* Y una sola vez. Sin esto, un latido infinito acortado a 0,01 ms se
+       repite cien mil veces por segundo: justo lo contrario de lo que pide
+       quien desactiva el movimiento. */
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ---------- estructura ---------- */
@@ -134,17 +146,45 @@ a { color: var(--accent); }
   position: sticky; top: 0; z-index: 30;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid transparent;
+  transition: border-color .25s var(--ease), box-shadow .25s var(--ease),
+              background .25s var(--ease);
+}
+/* Al bajar, la cabecera se despega del papel: una línea y una sombra muy corta
+   bastan para que se lea como una capa por encima y no como parte de la página.
+   Arriba del todo no lleva ninguna de las dos, que ahí no hay nada que separar. */
+body[data-desplazado="1"] .cabecera {
+  border-bottom-color: var(--border);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  box-shadow: 0 6px 20px -12px rgba(30, 22, 12, .45);
 }
 .cabecera__fila {
   display: flex; align-items: center; gap: var(--s4);
   min-height: 68px; flex-wrap: wrap;
+  transition: min-height .25s var(--ease);
 }
+body[data-desplazado="1"] .cabecera__fila { min-height: 58px; }
 .marca { display: flex; align-items: center; gap: var(--s3); text-decoration: none; color: inherit; margin-right: auto; }
 .marca__icono { width: 34px; height: 34px; flex: none; color: var(--accent); }
 .marca__texto { display: flex; flex-direction: column; line-height: 1.1; }
 .marca__nombre { font-family: var(--serif); font-size: var(--fs-lg); font-weight: 600; }
 .marca__sub { font-size: var(--fs-xs); color: var(--text-mut); letter-spacing: .08em; text-transform: uppercase; }
+
+/* En el teléfono la cabecera se queda en UNA fila. Con la marca escrita, el
+   buscador no cabe al lado y se va a una segunda fila: como la cabecera está
+   pegada arriba, esa segunda fila se lleva ciento sesenta píxeles de pantalla
+   para siempre, en un sitio donde lo que hay que ver son portadas. Se queda el
+   icono, que es la marca igual, y el nombre sigue ahí para quien lo lea con un
+   lector de pantalla. */
+@media (max-width: 640px) {
+  .cabecera__fila { gap: var(--s3); flex-wrap: nowrap; }
+  .marca { margin-right: 0; }
+  .marca__texto {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .buscador { flex: 1 1 auto; min-width: 0; max-width: none; }
+}
 
 /* ---------- botones ---------- */
 
@@ -197,7 +237,20 @@ a { color: var(--accent); }
 
 .buscador { position: relative; flex: 1 1 260px; max-width: 420px; }
 .buscador svg { position: absolute; left: var(--s3); top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--text-mut); pointer-events: none; }
-.buscador .entrada { padding-left: 42px; border-radius: var(--radius-full); background: var(--surface); }
+.buscador .entrada { padding-left: 42px; padding-right: 38px; border-radius: var(--radius-full); background: var(--surface); }
+.buscador svg { transition: color .18s var(--ease); }
+.buscador:focus-within svg { color: var(--accent); }
+
+/* La cruz de limpiar solo aparece cuando hay algo que limpiar. */
+.buscador__limpiar {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; padding: 0; display: grid; place-items: center;
+  border: none; border-radius: 50%; cursor: pointer;
+  background: transparent; color: var(--text-mut);
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.buscador__limpiar:hover { background: var(--surface-2); color: var(--text); }
+.buscador__limpiar svg { position: static; transform: none; width: 14px; height: 14px; }
 
 /* ---------- avisos ---------- */
 
@@ -268,5 +321,15 @@ a { color: var(--accent); }
 
 /* ---------- esqueletos de carga ---------- */
 
-@keyframes latido { 0%,100% { opacity: .55 } 50% { opacity: .95 } }
-.esqueleto { background: var(--surface-2); border-radius: var(--radius-sm); animation: latido 1.4s ease-in-out infinite; }
+/* Un reflejo que recorre el hueco, en vez de un parpadeo. El parpadeo dice
+   «esto está roto»; el barrido dice «esto viene en camino». */
+@keyframes barrido { from { background-position: 180% 0 } to { background-position: -80% 0 } }
+.esqueleto {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(100deg,
+    var(--surface-2) 0 38%,
+    color-mix(in srgb, var(--surface) 65%, var(--surface-2)) 50%,
+    var(--surface-2) 62% 100%);
+  background-size: 220% 100%;
+  animation: barrido 1.5s linear infinite;
+}
