@@ -156,15 +156,34 @@ function escalaPara(base) {
   return zoom;
 }
 
+/* Cambiar el tamaño de un lienzo borra el estado del contexto, incluido el
+   giro que PDF.js usa para poner el papel del derecho. Si eso pasa mientras un
+   dibujo sigue en marcha, la página sale volteada y partida: por eso hay que
+   esperar a que el anterior suelte el lienzo antes de tocarlo. */
+let turnoPintado = 0;
+
 async function pintarPdf() {
-  if (tareaRender) { try { tareaRender.cancel(); } catch { /* ya terminó */ } }
+  const turno = ++turnoPintado;
+  if (tareaRender) {
+    const previa = tareaRender;
+    tareaRender = null;
+    try { previa.cancel(); } catch { /* ya había terminado */ }
+    try { await previa.promise; } catch { /* cancelada, que es lo que queríamos */ }
+  }
+  if (turno !== turnoPintado) return;          // llegó otra petición mientras tanto
+
   const hojaPdf = await pdf.getPage(pagina);
+  if (turno !== turnoPintado) return;
 
   const base = hojaPdf.getViewport({ scale: 1 });
   const escala = escalaPara(base);
-  // El lienzo se dibuja al doble de puntos en pantallas finas y luego se
-  // encoge por CSS: así el texto escaneado no sale con los bordes deshechos.
-  const nitidez = Math.min(window.devicePixelRatio || 1, 2);
+  // El lienzo se dibuja con más puntos de los que ocupa y luego se encoge por
+  // CSS: así el texto escaneado no sale con los bordes deshechos. El tope de
+  // píxeles evita que una página grande al 300 % reviente el lienzo.
+  const TOPE = 12e6;
+  const pedida = Math.min(window.devicePixelRatio || 1, 2);
+  const cabe = Math.sqrt(TOPE / Math.max(1, base.width * escala * base.height * escala));
+  const nitidez = Math.max(1, Math.min(pedida, cabe));
   const vista = hojaPdf.getViewport({ scale: escala * nitidez });
   const vistaCss = hojaPdf.getViewport({ scale: escala });
 
@@ -387,7 +406,16 @@ function teclado(e) {
     const tope = abajo ? sobra - zonaPdf.scrollTop > 2 : zonaPdf.scrollTop > 2;
     if (sobra > 4 && tope) {
       e.preventDefault();
-      zonaPdf.scrollBy({ top: (abajo ? 1 : -1) * zonaPdf.clientHeight * 0.85, behavior: 'smooth' });
+      // `behavior: 'smooth'` no llega a moverse en recorridos cortos: el
+      // desplazamiento se lleva a mano, con la misma red de seguridad que el
+      // resto del movimiento del sitio.
+      const salto = (abajo ? 1 : -1) * zonaPdf.clientHeight * 0.85;
+      const destino = Math.max(0, Math.min(sobra, zonaPdf.scrollTop + salto));
+      const suave = Bib.animar(
+        (tl) => tl.to(zonaPdf, { scrollTop: destino, duration: 0.3, ease: 'power2.out' }),
+        { remate: 500 },
+      );
+      if (!suave) zonaPdf.scrollTop = destino;
       return;
     }
   }

@@ -26,6 +26,7 @@ paginados, sin descargar nada.
 | Archivos de los libros | R2, bucket `biblioteca-logidma` |
 | Catálogo y marcadores | D1, base `biblioteca-logidma` (`migraciones/`) |
 | Portadas | Cloudinary (cloud `srz5sh9l`, carpeta `biblioteca/portadas`) |
+| Instalación como app | `public/manifest.webmanifest` + `public/sw.js` |
 
 Decisiones que no se deducen mirando el código:
 
@@ -43,6 +44,21 @@ Decisiones que no se deducen mirando el código:
 - **La portada no pasa por el Worker:** el navegador pide una firma
   (`/api/portada/firma`) y sube directo a Cloudinary. El `api_secret` no sale del
   servidor y el destino lo decide él, no el cliente.
+- **El service worker pone la red por delante.** La caché es respaldo para
+  cuando no hay señal, nunca la fuente de la verdad: así un despliegue nuevo se
+  ve al instante en vez de quedarse una versión vieja pegada. `/api/*` y
+  `/archivo/*` ni siquiera pasan por él —guardar el catálogo lo deja mintiendo
+  después de cada subida, y los documentos viajan por peticiones con rango, que
+  la Cache API no sabe responder—. `public/vendor/` va al revés, de caché y
+  refrescando por detrás, porque son librerías fijas de megas. Al cambiar esa
+  política hay que subir `VERSION` en `public/sw.js`: en `activate` se borran
+  las cachés que no lleven el nombre de la versión en curso.
+
+- **Los iconos PNG del manifiesto están generados, no dibujados a mano.** Salen
+  de `public/img/icono.svg` con Chrome sin ventana
+  (`--headless --window-size=512,512 --screenshot`). Un manifiesto solo con SVG
+  no pasa la comprobación de Chrome y el aviso de instalar no llega a aparecer.
+
 - **Las librerías del lector se sirven desde el propio dominio** (`public/vendor/`,
   generado por `npm run vendor`). Nada depende de un CDN externo.
 - **El dominio propio no se declara en `wrangler.jsonc`.** Se ató una vez con

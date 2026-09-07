@@ -28,7 +28,9 @@
 
   const apartar = () => { try { localStorage.setItem(RECHAZO, String(Date.now())); } catch { /* modo privado */ } };
 
-  if (yaInstalada() || enTregua()) return;
+  // Leyendo no se interrumpe a nadie: el ofrecimiento vive en el catálogo.
+  const leyendo = document.body.classList.contains('cuerpo-lector');
+  if (leyendo || yaInstalada() || enTregua()) return;
 
   let letrero = null;
 
