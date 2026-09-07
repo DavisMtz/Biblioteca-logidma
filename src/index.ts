@@ -461,6 +461,60 @@ app.post('/api/subir/cancelar', soloAdmin, async (c) => {
   return c.json({ ok: true });
 });
 
+/* ---------- mantenimiento: mudar un libro de KV a R2 ---------- */
+
+/**
+ * Mueve UN libro por llamada, parte por parte, para no cargar el archivo entero
+ * en memoria ni agotar el tiempo del Worker. Devuelve cuántos quedan.
+ */
+app.post('/api/mantenimiento/mover-a-r2', soloAdmin, async (c) => {
+  const libro = await c.env.DB.prepare(
+    `SELECT id, nombre_archivo, partes, tamano FROM libros WHERE almacen = 'kv' ORDER BY tamano LIMIT 1`,
+  ).first<{ id: string; nombre_archivo: string; partes: number; tamano: number }>();
+
+  if (!libro) {
+    const quedan = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM libros WHERE almacen = 'kv'`,
+    ).first<{ n: number }>();
+    return c.json({ terminado: true, quedan: Number(quedan?.n || 0) });
+  }
+
+  const ext = extension(libro.nombre_archivo);
+  const clave = claveR2(libro.id, ext);
+  const multi = await c.env.LIBROS_R2.createMultipartUpload(clave, {
+    httpMetadata: {
+      contentType: FORMATOS[ext],
+      contentDisposition: `inline; filename="${encodeURIComponent(libro.nombre_archivo)}"`,
+    },
+  });
+
+  const subidas: R2UploadedPart[] = [];
+  for (let n = 1; n <= libro.partes; n++) {
+    const trozo = await leerParte(c.env, libro.id, n);
+    if (!trozo) {
+      await multi.abort().catch(() => {});
+      return c.json({ error: `Al libro «${libro.id}» le falta la parte ${n}; no se movió.` }, 500);
+    }
+    subidas.push(await multi.uploadPart(n, trozo));
+  }
+  await multi.complete(subidas);
+
+  // Solo después de que R2 confirme, se cambia el catálogo y se suelta lo viejo.
+  const puesto = await c.env.LIBROS_R2.head(clave);
+  if (!puesto || puesto.size !== libro.tamano) {
+    return c.json({ error: `R2 guardó ${puesto?.size ?? 0} bytes y se esperaban ${libro.tamano}.` }, 500);
+  }
+  await c.env.DB.prepare(
+    `UPDATE libros SET almacen = 'r2', clave_archivo = ?, actualizado_en = ? WHERE id = ?`,
+  ).bind(clave, ahora(), libro.id).run();
+  await borrarPartes(c.env, libro.id, libro.partes);
+
+  const quedan = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM libros WHERE almacen = 'kv'`,
+  ).first<{ n: number }>();
+  return c.json({ movido: libro.id, bytes: libro.tamano, quedan: Number(quedan?.n || 0) });
+});
+
 /* ---------- portadas en Cloudinary ---------- */
 
 /** El servidor decide carpeta y public_id; el navegador solo sube el archivo. */
