@@ -418,7 +418,7 @@ const Formatos = (() => {
     'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
     'list-style', 'list-style-type', 'list-style-position',
     'border-collapse', 'display', 'float', 'clear', 'width', 'max-width',
-    'break-before', 'break-after', 'break-inside',
+    'break-before', 'break-after', 'break-inside', 'orphans', 'widows', 'overflow-wrap',
   ]);
 
   /* `line-height` NO está en la lista a propósito. El lector calcula la altura
@@ -436,6 +436,25 @@ const Formatos = (() => {
   ]);
 
   const ABSOLUTA = /\d\s*(px|pt|pc|in|cm|mm|q)\b/i;
+  const ABSOLUTAS = /(-?(?:\d+(?:\.\d*)?|\.\d+))\s*(px|pt|pc|in|cm|mm|q)\b/gi;
+
+  /* Los EPUB editoriales suelen expresar sangrías y espaciados en pt/px. Tirarlos
+     por completo aplana el libro; conservarlos tal cual rompe el móvil. Se
+     convierten a em y se limitan: se mantiene la proporción tipográfica sin
+     permitir que una maqueta de papel se lleve media pantalla. Los anchos fijos
+     siguen prohibidos más abajo. */
+  function absolutasAEm(valor, propiedad) {
+    const factores = { px: 1 / 16, pt: 1 / 12, pc: 1, in: 6, cm: 96 / 2.54 / 16, mm: 96 / 25.4 / 16, q: 96 / 101.6 / 16 };
+    let minimo = -4, maximo = 4;
+    if (propiedad === 'font-size') { minimo = 0.65; maximo = 2.4; }
+    else if (propiedad === 'text-indent') { minimo = -3; maximo = 3; }
+    else if (propiedad === 'letter-spacing') { minimo = -0.35; maximo = 0.35; }
+    else if (propiedad === 'word-spacing') { minimo = -1; maximo = 1; }
+    return valor.replace(ABSOLUTAS, (_todo, numero, unidad) => {
+      const em = Math.max(minimo, Math.min(maximo, Number(numero) * factores[unidad.toLowerCase()]));
+      return `${Math.round(em * 1000) / 1000}em`;
+    });
+  }
   // Ni paréntesis ni llaves ni comillas: sin `url()`, `calc()` ni nada que
   // pueda salirse de la declaración, el valor es texto plano y se ve de un vistazo.
   const VALOR_SUCIO = /[<>{}@\\()"';]/;
@@ -447,6 +466,8 @@ const Formatos = (() => {
     let prop = propiedad.trim().toLowerCase();
     let val = valor.replace(/!\s*important/gi, '').trim();
     if (!prop || !val || val.length > 120 || VALOR_SUCIO.test(val)) return '';
+    if (/^-(?:epub|webkit|moz)-hyphens$/.test(prop)) prop = 'hyphens';
+    if (prop === 'word-wrap') prop = 'overflow-wrap';
 
     // Los saltos de página del libro se convierten en saltos de columna: aquí
     // una columna ES una página, así que el corte cae donde el autor lo puso.
@@ -455,9 +476,13 @@ const Formatos = (() => {
       if (/^(always|left|right|recto|verso)$/i.test(val)) val = 'column';
     }
     if (!PROPIEDADES.has(prop)) return '';
-    // Medidas en píxeles o puntos: el libro las escribió para una pantalla que
-    // no es esta, y no crecen con A+ ni encogen con A−.
-    if (RELATIVA.has(prop) && ABSOLUTA.test(val)) return '';
+    // Los anchos fijos siguen fuera: una caja de 546pt no cabe en un teléfono.
+    // Para tipografía y espaciado, en cambio, se conserva la intención editorial
+    // convirtiendo las medidas absolutas a em y limitándolas.
+    if (RELATIVA.has(prop) && ABSOLUTA.test(val)) {
+      if (prop === 'width' || prop === 'max-width') return '';
+      val = absolutasAEm(val, prop);
+    }
     if (prop === 'display' && !DISPLAY.test(val)) return '';
     return `${prop}:${val}`;
   }
@@ -669,20 +694,30 @@ const Formatos = (() => {
       const datos = src ? porRuta.get(EpubZip.normalizar(carpeta + EpubZip.comoRuta(src))) : null;
       if (!datos) { img.remove(); continue; }
       const url = urlDeImagen(datos.ruta);
-      if (img.tagName.toLowerCase() === 'image') img.setAttribute('href', url);
-      else img.setAttribute('src', url);
-      img.removeAttribute('xlink:href');
-      // Las medidas van en el marcado, no en el CSS: así el hueco de la
-      // ilustración existe desde el primer momento y el reparto en páginas no
-      // se descoloca cuando la imagen termina de descodificarse.
-      if (datos.ancho && datos.alto) {
-        img.setAttribute('width', String(datos.ancho));
-        img.setAttribute('height', String(datos.alto));
+      const esSvg = img.tagName.toLowerCase() === 'image';
+      if (esSvg) {
+        // En SVG, width/height son coordenadas del viewBox, NO el tamaño real del
+        // JPG. Sustituir esas coordenadas por los píxeles intrínsecos deforma o
+        // recorta portadas. Se conserva lo que escribió el EPUB.
+        img.setAttribute('href', url);
+        const svg = img.closest && img.closest('svg');
+        if (svg && svg.querySelectorAll('image').length === 1 && !svg.querySelector('text, foreignObject')) {
+          svg.classList.add('epub__lamina');
+          svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          img.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        }
+      } else {
+        img.setAttribute('src', url);
+        // En HTML sí son dimensiones intrínsecas: reservarlas evita que cambie el
+        // reparto de páginas cuando la imagen termina de descodificarse.
+        if (datos.ancho && datos.alto) {
+          img.setAttribute('width', String(datos.ancho));
+          img.setAttribute('height', String(datos.alto));
+        }
+        img.setAttribute('loading', 'lazy');
+        img.setAttribute('decoding', 'async');
       }
-      // Solo se descodifican las que se lleguen a ver: en un libro ilustrado
-      // esa es la diferencia entre unas pocas y todas a la vez.
-      img.setAttribute('loading', 'lazy');
-      img.setAttribute('decoding', 'async');
+      img.removeAttribute('xlink:href');
     }
   }
 
