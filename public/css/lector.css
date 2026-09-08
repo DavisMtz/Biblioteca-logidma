@@ -110,6 +110,18 @@
   text-wrap: balance; hyphens: manual;
 }
 .hoja__flujo h1 { font-size: 1.5em; } .hoja__flujo h2 { font-size: 1.3em; } .hoja__flujo h3 { font-size: 1.12em; }
+/* Las portadas/laminas EPUB hechas como SVG son páginas visuales completas.
+   Se encajan por su viewBox y nunca se estiran a la forma de la pantalla. */
+.hoja__flujo svg.epub__lamina {
+  display: block;
+  width: 100%; max-width: 100%; height: auto;
+  max-height: calc(var(--alto-hoja, 62vh) * 0.86);
+  margin: 0 auto 1em;
+  break-inside: avoid;
+  overflow: visible;
+}
+.hoja__flujo svg.epub__lamina > image { width: 100%; height: 100%; }
+
 .hoja__flujo img {
   max-width: 100%; height: auto; display: block; margin: 1em auto; break-inside: avoid;
   /* Una ilustración más alta que la columna abre un hueco enorme antes de ella.
