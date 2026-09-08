@@ -3,7 +3,9 @@ name: Completar importación de clásicos
 on:
   push:
     branches: ['import/platon-maquiavelo-kafka']
-    paths: ['.github/workflows/completar-importacion-clasicos.yml']
+    paths:
+      - '.github/workflows/completar-importacion-clasicos.yml'
+      - 'scripts/importar-platon-azcarate.sh'
 
 jobs:
   reparar_platon:
