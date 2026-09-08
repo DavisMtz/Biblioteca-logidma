@@ -53,12 +53,16 @@ test "${PAGES:-0}" -gt 150
 test "$SIZE" -gt 1000000
 test "$SIZE" -lt 180000000
 
-# Muestreo visual: fuerza a Poppler a rasterizar una página intermedia. Si el
-# PDF es válido pero ilegible/corrupto, esta operación suele fallar o producir
-# una miniatura casi vacía.
-SAMPLE=$(( PAGES > 40 ? 20 : 1 ))
-pdftoppm -f "$SAMPLE" -singlefile -jpeg -r 100 "$PDF" /tmp/muestra >/dev/null 2>&1
-test "$(stat -c %s /tmp/muestra.jpg)" -gt 15000
+# Muestreo visual: forzamos a Poppler a rasterizar dos páginas distintas. En
+# facsímiles monocromos una página válida puede comprimirse a muy pocos KB, por
+# lo que no usamos el peso del JPEG como proxy de legibilidad. Lo importante es
+# que ambas páginas se rendericen y produzcan imágenes JPEG reales/no vacías.
+for SAMPLE in 20 $(( PAGES / 2 )); do
+  OUT="/tmp/muestra-${SAMPLE}"
+  pdftoppm -f "$SAMPLE" -singlefile -jpeg -r 100 "$PDF" "$OUT" >/dev/null 2>&1
+  file "${OUT}.jpg" | grep -q 'JPEG image data'
+  test -s "${OUT}.jpg"
+done
 
 KEY="libros/${BOOK_ID}.pdf"
 npx wrangler r2 object put "biblioteca-logidma/${KEY}" \
