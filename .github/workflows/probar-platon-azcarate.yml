@@ -1,0 +1,37 @@
+name: Probar Platón Azcárate
+
+on:
+  push:
+    branches: ['import/platon-maquiavelo-kafka']
+    paths: ['.github/workflows/probar-platon-azcarate.yml']
+
+jobs:
+  probar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar conversores
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq djvulibre-bin poppler-utils
+      - name: Descargar tomo II
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://commons.wikimedia.org/wiki/Special:Redirect/file/Obras%20completas%20de%20Plat%C3%B3n%20-%20Tomo%20II%20%281871%29.djvu'
+          curl --fail --location --retry 3 "$URL" -o /tmp/tomo.djvu
+          file /tmp/tomo.djvu
+          test "$(stat -c %s /tmp/tomo.djvu)" -gt 10000000
+      - name: Convertir a PDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          ddjvu -format=pdf /tmp/tomo.djvu /tmp/tomo.pdf
+          file /tmp/tomo.pdf
+          pdfinfo /tmp/tomo.pdf | grep -E '^(Pages|File size):'
+          test "$(pdfinfo /tmp/tomo.pdf | awk '/^Pages:/ {print $2}')" -gt 300
+      - name: Probar miniatura de portada
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://commons.wikimedia.org/w/thumb.php?f=Obras_completas_de_Plat%C3%B3n_-_Tomo_II_%281871%29.djvu&w=480&page=1'
+          curl --fail --location --retry 3 "$URL" -o /tmp/portada
+          file /tmp/portada
+          test "$(stat -c %s /tmp/portada)" -gt 10000
