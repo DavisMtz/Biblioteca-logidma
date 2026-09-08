@@ -5,15 +5,24 @@ set -euo pipefail
 YEAR_SQL="${YEAR:-NULL}"
 EPUB="/tmp/${BOOK_ID}.epub"
 
-curl --fail --location --retry 3 --retry-delay 2 "$SOURCE_URL" -o "$EPUB"
-test "$(unzip -p "$EPUB" mimetype)" = 'application/epub+zip'
+# Algunas rutas de la SEP responden distinto a clientes sin cabeceras de
+# navegador. Usamos un User-Agent normal y validamos el ZIP antes de tocar R2.
+curl --fail --location --retry 3 --retry-delay 2 \
+  --user-agent 'Mozilla/5.0 Biblioteca-logidma/1.0' \
+  --header 'Accept: application/epub+zip,application/octet-stream,*/*' \
+  "$SOURCE_URL" -o "$EPUB"
+
+test "$(unzip -p "$EPUB" mimetype 2>/dev/null)" = 'application/epub+zip'
 unzip -t "$EPUB" >/dev/null
 mkdir -p /tmp/epub-check
+rm -rf /tmp/epub-check/*
 unzip -q "$EPUB" -d /tmp/epub-check
 grep -Riq "${AUTHOR%% *}" /tmp/epub-check
 
 # La portada externa oficial se comprueba antes de registrar la ficha.
-curl --fail --location --retry 3 --retry-delay 2 "$COVER_URL" -o /tmp/portada
+curl --fail --location --retry 3 --retry-delay 2 \
+  --user-agent 'Mozilla/5.0 Biblioteca-logidma/1.0' \
+  "$COVER_URL" -o /tmp/portada
 test "$(stat -c %s /tmp/portada)" -gt 5000
 
 SIZE=$(stat -c %s "$EPUB")
