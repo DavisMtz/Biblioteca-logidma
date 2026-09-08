@@ -1,0 +1,92 @@
+name: Finalizar Kafka y verificar catálogo
+
+on:
+  push:
+    branches: ['import/platon-maquiavelo-kafka']
+    paths: ['.github/workflows/finalizar-kafka.yml']
+
+jobs:
+  kafka:
+    name: ${{ matrix.title }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: kafkaanteleysep01
+            title: Ante la ley
+            author: Franz Kafka
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1883_Ante_la_ley-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/anteLey.png
+            year: '1915'
+            description: Parábola sobre el poder, la espera, la obediencia y el acceso imposible a la ley. Edición EPUB de la Biblioteca Digital de la SEP.
+          - id: kafkacondenasep01
+            title: La condena
+            author: Franz Kafka
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1883_La_condena-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/laCondena.png
+            year: '1912'
+            description: Relato sobre autoridad paterna, culpa, sumisión y absurdo trágico. Edición EPUB de la Biblioteca Digital de la SEP.
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: import/platon-maquiavelo-kafka
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Descargar, validar y subir EPUB oficial SEP
+        env:
+          BOOK_ID: ${{ matrix.id }}
+          TITLE: ${{ matrix.title }}
+          AUTHOR: ${{ matrix.author }}
+          SOURCE_URL: ${{ matrix.source }}
+          COVER_URL: ${{ matrix.cover }}
+          CATEGORY: Literatura
+          YEAR: ${{ matrix.year }}
+          DESCRIPTION: ${{ matrix.description }}
+        run: bash scripts/importar-epub-sep.sh
+
+  verificar:
+    name: Verificar catálogo y tamaño registrado
+    needs: kafka
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verificar clásicos importados
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute biblioteca-logidma --remote --json --command="SELECT id,titulo,autor,formato,paginas,tamano,estado FROM libros WHERE id LIKE 'platonazc%' OR id IN ('maquiaveloprinsep01','kafkametamorfsep01','kafkaanteleysep01','kafkacondenasep01') ORDER BY autor,titulo;" > /tmp/catalogo.json
+          cat /tmp/catalogo.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/catalogo.json'))
+          rows=[]
+          def walk(x):
+              if isinstance(x, dict):
+                  if {'id','titulo','autor','formato','estado'} <= x.keys(): rows.append(x)
+                  for v in x.values(): walk(v)
+              elif isinstance(x, list):
+                  for v in x: walk(v)
+          walk(data)
+          unique={r['id']:r for r in rows}
+          assert len(unique)==15, f'Se esperaban 15 registros y se encontraron {len(unique)}: {sorted(unique)}'
+          assert sum(1 for i in unique if i.startswith('platonazc'))==11
+          assert all(r.get('estado')=='publicado' for r in unique.values())
+          print('VERIFICADO: 11 Platón + El príncipe + 3 Kafka = 15 registros publicados')
+          PY
+      - name: Medir almacenamiento registrado en D1
+        run: npx wrangler d1 execute biblioteca-logidma --remote --command="SELECT COUNT(*) AS libros_r2, SUM(tamano) AS bytes_registrados FROM libros WHERE almacen='r2' AND estado='publicado';"
