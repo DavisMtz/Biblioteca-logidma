@@ -1,0 +1,138 @@
+name: Completar importación de clásicos
+
+on:
+  push:
+    branches: ['import/platon-maquiavelo-kafka']
+    paths: ['.github/workflows/completar-importacion-clasicos.yml']
+
+jobs:
+  reparar_platon:
+    name: Reparar Platón tomo ${{ matrix.roman }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - roman: III
+            year: '1871'
+            id: platonazc1871t03
+            subserie: Diálogos polémicos, segunda serie
+          - roman: V
+            year: '1871'
+            id: platonazc1871t05
+            subserie: Diálogos dogmáticos, tercera serie
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: import/platon-maquiavelo-kafka
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Instalar conversores
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq djvulibre-bin poppler-utils ghostscript
+      - name: Convertir con compresión adaptativa y subir
+        env:
+          ROMAN: ${{ matrix.roman }}
+          YEAR: ${{ matrix.year }}
+          BOOK_ID: ${{ matrix.id }}
+          SUBSERIE: ${{ matrix.subserie }}
+        run: bash scripts/importar-platon-azcarate.sh
+
+  sep:
+    name: ${{ matrix.title }}
+    needs: reparar_platon
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: maquiaveloprinsep01
+            title: El príncipe
+            author: Nicolás Maquiavelo
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1469_El_principe-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/elPrincipe.png
+            category: Filosofía
+            year: '1532'
+            description: Tratado clásico de filosofía política sobre el poder y el gobierno. Edición EPUB de la Biblioteca Digital de la SEP.
+          - id: kafkacuentossep01
+            title: Cuentos completos
+            author: Franz Kafka
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1883_Cuentos_completos_Kafka-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/cuentosKafka.png
+            category: Literatura
+            year: ''
+            description: Compilación de los relatos breves de Franz Kafka sobre el absurdo, la culpa, la alienación, el poder y la identidad. Edición EPUB de la Biblioteca Digital de la SEP.
+          - id: kafkametamorfsep01
+            title: La metamorfosis
+            author: Franz Kafka
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1883_La_metamorfosis-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/laMetamorfosis.png
+            category: Literatura
+            year: '1915'
+            description: Relato de Gregorio Samsa y su transformación, una obra central sobre alienación, culpa e identidad. Edición EPUB de la Biblioteca Digital de la SEP.
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: import/platon-maquiavelo-kafka
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Descargar, validar y subir EPUB oficial SEP
+        env:
+          BOOK_ID: ${{ matrix.id }}
+          TITLE: ${{ matrix.title }}
+          AUTHOR: ${{ matrix.author }}
+          SOURCE_URL: ${{ matrix.source }}
+          COVER_URL: ${{ matrix.cover }}
+          CATEGORY: ${{ matrix.category }}
+          YEAR: ${{ matrix.year }}
+          DESCRIPTION: ${{ matrix.description }}
+        run: bash scripts/importar-epub-sep.sh
+
+  verificar:
+    name: Verificar los 14 libros nuevos
+    needs: [reparar_platon, sep]
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Consultar catálogo remoto
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute biblioteca-logidma --remote --json --command="SELECT id,titulo,autor,formato,paginas,tamano,estado FROM libros WHERE id LIKE 'platonazc%' OR id IN ('maquiaveloprinsep01','kafkacuentossep01','kafkametamorfsep01') ORDER BY autor,titulo;" > /tmp/catalogo.json
+          cat /tmp/catalogo.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/catalogo.json'))
+          rows=[]
+          def walk(x):
+              if isinstance(x, dict):
+                  if {'id','titulo','autor','formato','estado'} <= x.keys(): rows.append(x)
+                  for v in x.values(): walk(v)
+              elif isinstance(x, list):
+                  for v in x: walk(v)
+          walk(data)
+          unique={r['id']:r for r in rows}
+          assert len(unique)==14, f'Se esperaban 14 registros y se encontraron {len(unique)}: {sorted(unique)}'
+          assert all(r.get('estado')=='publicado' for r in unique.values())
+          assert sum(1 for i in unique if i.startswith('platonazc'))==11
+          print('VERIFICADO: 11 tomos de Platón + 3 EPUB = 14 registros publicados')
+          PY
