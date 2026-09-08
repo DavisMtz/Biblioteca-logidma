@@ -19,10 +19,12 @@ rm -rf /tmp/epub-check/*
 unzip -q "$EPUB" -d /tmp/epub-check
 grep -Riq "${AUTHOR%% *}" /tmp/epub-check
 
-# La portada externa oficial se comprueba antes de registrar la ficha.
+# La portada externa oficial se comprueba antes de registrar la ficha. No basta
+# con que la URL devuelva bytes: debe ser realmente una imagen, no un HTML 404.
 curl --fail --location --retry 3 --retry-delay 2 \
   --user-agent 'Mozilla/5.0 Biblioteca-logidma/1.0' \
   "$COVER_URL" -o /tmp/portada
+file /tmp/portada | grep -Eq 'PNG image data|JPEG image data|WebP image data'
 test "$(stat -c %s /tmp/portada)" -gt 5000
 
 SIZE=$(stat -c %s "$EPUB")
