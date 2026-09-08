@@ -1,0 +1,41 @@
+name: Probar PDF optimizado de Platón
+
+on:
+  push:
+    branches: ['import/platon-maquiavelo-kafka']
+    paths: ['.github/workflows/probar-platon-pdf-optimizado.yml']
+
+jobs:
+  probar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar conversores
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq djvulibre-bin poppler-utils ghostscript
+      - name: Descargar y convertir tomo II
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://commons.wikimedia.org/wiki/Special:Redirect/file/Obras%20completas%20de%20Plat%C3%B3n%20-%20Tomo%20II%20%281871%29.djvu'
+          curl --fail --location --retry 3 "$URL" -o /tmp/tomo.djvu
+          ddjvu -format=pdf /tmp/tomo.djvu /tmp/tomo-bruto.pdf 2>/dev/null
+          gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite \
+            -dCompatibilityLevel=1.5 \
+            -dColorImageDownsampleType=/Bicubic -dColorImageResolution=120 \
+            -dGrayImageDownsampleType=/Bicubic -dGrayImageResolution=120 \
+            -dMonoImageDownsampleType=/Subsample -dMonoImageResolution=300 \
+            -dAutoFilterColorImages=false -dColorImageFilter=/DCTEncode \
+            -dAutoFilterGrayImages=false -dGrayImageFilter=/DCTEncode \
+            -dJPEGQ=82 \
+            -sOutputFile=/tmp/tomo.pdf /tmp/tomo-bruto.pdf
+          echo "DJVU $(stat -c %s /tmp/tomo.djvu)"
+          echo "PDF_BRUTO $(stat -c %s /tmp/tomo-bruto.pdf)"
+          echo "PDF_OPTIMIZADO $(stat -c %s /tmp/tomo.pdf)"
+          pdfinfo /tmp/tomo.pdf | grep -E '^(Pages|File size):'
+          test "$(pdfinfo /tmp/tomo.pdf | awk '/^Pages:/ {print $2}')" = '363'
+          test "$(stat -c %s /tmp/tomo.pdf)" -lt 120000000
+      - name: Verificar legibilidad visual aproximada
+        shell: bash
+        run: |
+          pdftoppm -f 20 -singlefile -jpeg -r 120 /tmp/tomo.pdf /tmp/pagina >/dev/null 2>&1
+          file /tmp/pagina.jpg
+          test "$(stat -c %s /tmp/pagina.jpg)" -gt 30000
