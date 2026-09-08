@@ -18,6 +18,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Instalar utilidades PDF
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - name: Descargar Diálogos I desde R2
         run: npx wrangler r2 object get 'biblioteca-logidma/libros/f53e7b08ca6f4ceab654.pdf' --file=/tmp/dialogos-i.pdf --remote
       - name: Identificar edición
@@ -25,5 +27,5 @@ jobs:
         run: |
           set -euo pipefail
           pdfinfo /tmp/dialogos-i.pdf | grep -E '^(Title|Author|Creator|Producer|Pages|File size):' || true
-          pdftotext -f 1 -l 12 -layout /tmp/dialogos-i.pdf /tmp/inicio.txt || true
-          grep -iEn -m 20 'gredos|azc.r|traduc|biblioteca cl.sica|editorial|introducci.n|apolog.a|eutifr.n|prot.goras' /tmp/inicio.txt || true
+          pdftotext -f 1 -l 16 -layout /tmp/dialogos-i.pdf /tmp/inicio.txt || true
+          grep -iEn -m 30 'gredos|azc.r|traduc|biblioteca cl.sica|editorial|introducci.n|apolog.a|eutifr.n|prot.goras|garc.a gual|lledo|calonge' /tmp/inicio.txt || true
