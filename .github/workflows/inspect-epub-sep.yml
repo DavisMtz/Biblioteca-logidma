@@ -1,0 +1,61 @@
+name: Inspeccionar EPUB SEP
+
+on:
+  push:
+    branches: ['inspect/epub-sep']
+    paths: ['.github/workflows/inspect-epub-sep.yml']
+
+jobs:
+  inspeccionar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar EPUB
+        run: curl --fail --location 'https://bdchamakes.sep.gob.mx/nebulosas/427aC_La_Republica-SEP-.epub' -o /tmp/libro.epub
+
+      - name: Resumen estructural
+        shell: python
+        run: |
+          import zipfile, re, xml.etree.ElementTree as ET
+          from collections import Counter
+          z=zipfile.ZipFile('/tmp/libro.epub')
+          names=z.namelist()
+          print('FILES', len(names))
+          print('SVG', [n for n in names if n.lower().endswith('.svg')][:20])
+          print('CSS', [n for n in names if n.lower().endswith('.css')][:20])
+          c=ET.fromstring(z.read('META-INF/container.xml'))
+          rootfile=next(iter(c.iter()))
+          opf_path=None
+          for e in c.iter():
+            if e.tag.endswith('rootfile'):
+              opf_path=e.attrib.get('full-path'); break
+          print('OPF', opf_path)
+          opf=ET.fromstring(z.read(opf_path))
+          base=opf_path.rsplit('/',1)[0]+'/' if '/' in opf_path else ''
+          manifest={}
+          for e in opf.iter():
+            if e.tag.endswith('item'):
+              manifest[e.attrib.get('id')] = (base+e.attrib.get('href',''), e.attrib.get('media-type',''), e.attrib.get('properties',''))
+          spine=[]
+          for e in opf.iter():
+            if e.tag.endswith('itemref'):
+              it=manifest.get(e.attrib.get('idref'))
+              if it: spine.append(it)
+          print('SPINE COUNT', len(spine))
+          for i,(p,t,props) in enumerate(spine[:12]):
+            raw=z.read(p).decode('utf-8','replace')
+            body=re.search(r'<body\b[^>]*>([\s\S]*?)</body>', raw, re.I)
+            frag=body.group(1) if body else raw
+            tags=Counter(re.findall(r'<\s*([a-zA-Z0-9:_-]+)', frag))
+            styles=re.findall(r'style\s*=\s*["\']([^"\']+)', frag, re.I)
+            print('SPINE', i, p, t, props, 'tags=', tags.most_common(12), 'inline_styles=', styles[:8])
+          props=Counter()
+          sels=[]
+          for n in names:
+            if not n.lower().endswith('.css'): continue
+            txt=z.read(n).decode('utf-8','replace')
+            for block in re.findall(r'([^{}]+)\{([^{}]*)\}', txt):
+              sels.append(block[0].strip())
+              for d in block[1].split(';'):
+                if ':' in d: props[d.split(':',1)[0].strip().lower()]+=1
+          print('CSS PROPERTIES', props.most_common(40))
+          print('SELECTORS', sels[:40])
