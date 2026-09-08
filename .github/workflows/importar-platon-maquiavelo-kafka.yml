@@ -1,0 +1,160 @@
+name: Importar Platón completo, Maquiavelo y Kafka
+
+on:
+  push:
+    branches: ['import/platon-maquiavelo-kafka']
+    paths: ['.github/workflows/importar-platon-maquiavelo-kafka.yml']
+
+jobs:
+  platon:
+    name: Platón tomo ${{ matrix.roman }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - roman: I
+            year: '1871'
+            id: platonazc1871t01
+            subserie: Diálogos socráticos, primera serie
+          - roman: II
+            year: '1871'
+            id: platonazc1871t02
+            subserie: Diálogos socráticos, primera serie
+          - roman: III
+            year: '1871'
+            id: platonazc1871t03
+            subserie: Diálogos polémicos, segunda serie
+          - roman: IV
+            year: '1871'
+            id: platonazc1871t04
+            subserie: Diálogos polémicos, segunda serie
+          - roman: V
+            year: '1871'
+            id: platonazc1871t05
+            subserie: Diálogos dogmáticos, tercera serie
+          - roman: VI
+            year: '1872'
+            id: platonazc1872t06
+            subserie: Diálogos dogmáticos, tercera serie
+          - roman: VII
+            year: '1872'
+            id: platonazc1872t07
+            subserie: La República o El Estado
+          - roman: VIII
+            year: '1872'
+            id: platonazc1872t08
+            subserie: La República o El Estado
+          - roman: IX
+            year: '1872'
+            id: platonazc1872t09
+            subserie: Las Leyes
+          - roman: X
+            year: '1872'
+            id: platonazc1872t10
+            subserie: Las Leyes
+          - roman: XI
+            year: '1872'
+            id: platonazc1872t11
+            subserie: Obras varias, diálogos apócrifos o dudosos, cartas y fragmentos
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: import/platon-maquiavelo-kafka
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Instalar conversores
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq djvulibre-bin poppler-utils ghostscript
+      - name: Descargar, optimizar, validar y subir tomo
+        env:
+          ROMAN: ${{ matrix.roman }}
+          YEAR: ${{ matrix.year }}
+          BOOK_ID: ${{ matrix.id }}
+          SUBSERIE: ${{ matrix.subserie }}
+        run: bash scripts/importar-platon-azcarate.sh
+
+  sep:
+    name: ${{ matrix.title }}
+    needs: platon
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - id: maquiaveloprinsep01
+            title: El príncipe
+            author: Nicolás Maquiavelo
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1469_El_principe-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/elPrincipe.png
+            category: Filosofía
+            year: '1532'
+            description: Tratado clásico de filosofía política sobre el poder y el gobierno. Edición EPUB de la Biblioteca Digital de la SEP.
+          - id: kafkacuentossep01
+            title: Cuentos completos
+            author: Franz Kafka
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1883_Cuentos_completos_Kafka-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/cuentosKafka.png
+            category: Literatura
+            year: ''
+            description: Compilación de los relatos breves de Franz Kafka sobre el absurdo, la culpa, la alienación, el poder y la identidad. Edición EPUB de la Biblioteca Digital de la SEP.
+          - id: kafkametamorfsep01
+            title: La metamorfosis
+            author: Franz Kafka
+            source: https://bdchamakes.sep.gob.mx/nebulosas/1883_La_metamorfosis-SEP-.epub
+            cover: https://bdchamakes.sep.gob.mx/imgs/nebulosas/laMetamorfosis.png
+            category: Literatura
+            year: '1915'
+            description: Relato de Gregorio Samsa y su transformación, una obra central sobre alienación, culpa e identidad. Edición EPUB de la Biblioteca Digital de la SEP.
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: import/platon-maquiavelo-kafka
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Descargar, validar y subir EPUB oficial SEP
+        env:
+          BOOK_ID: ${{ matrix.id }}
+          TITLE: ${{ matrix.title }}
+          AUTHOR: ${{ matrix.author }}
+          SOURCE_URL: ${{ matrix.source }}
+          COVER_URL: ${{ matrix.cover }}
+          CATEGORY: ${{ matrix.category }}
+          YEAR: ${{ matrix.year }}
+          DESCRIPTION: ${{ matrix.description }}
+        run: bash scripts/importar-epub-sep.sh
+
+  verificar:
+    name: Verificar catálogo final
+    needs: [platon, sep]
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Comprobar los 14 registros
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute biblioteca-logidma --remote --command="SELECT id,titulo,autor,formato,paginas,tamano,estado FROM libros WHERE id LIKE 'platonazc%' OR id IN ('maquiaveloprinsep01','kafkacuentossep01','kafkametamorfsep01') ORDER BY autor,titulo;" | tee /tmp/catalogo.txt
+          COUNT=$(grep -o '"id"' /tmp/catalogo.txt | wc -l)
+          test "$COUNT" -eq 14
