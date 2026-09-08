@@ -1,0 +1,227 @@
+name: Aplicar y probar corrección EPUB editorial
+
+on:
+  push:
+    branches: ['fix/epub-editorial']
+    paths: ['.github/workflows/aplicar-fix-epub-editorial.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  corregir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/epub-editorial
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Aplicar parche conservador
+        shell: python
+        run: |
+          from pathlib import Path
+
+          js = Path('public/js/formatos.js')
+          s = js.read_text()
+
+          old = """    'border-collapse', 'display', 'float', 'clear', 'width', 'max-width',
+    'break-before', 'break-after', 'break-inside',
+"""
+          new = """    'border-collapse', 'display', 'float', 'clear', 'width', 'max-width',
+    'break-before', 'break-after', 'break-inside', 'orphans', 'widows', 'overflow-wrap',
+"""
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+
+          old = """  const ABSOLUTA = /\\d\\s*(px|pt|pc|in|cm|mm|q)\\b/i;
+  // Ni paréntesis ni llaves ni comillas: sin `url()`, `calc()` ni nada que
+"""
+          new = """  const ABSOLUTA = /\\d\\s*(px|pt|pc|in|cm|mm|q)\\b/i;
+  const ABSOLUTAS = /(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))\\s*(px|pt|pc|in|cm|mm|q)\\b/gi;
+
+  /* Los EPUB editoriales suelen expresar sangrías y espaciados en pt/px. Tirarlos
+     por completo aplana el libro; conservarlos tal cual rompe el móvil. Se
+     convierten a em y se limitan: se mantiene la proporción tipográfica sin
+     permitir que una maqueta de papel se lleve media pantalla. Los anchos fijos
+     siguen prohibidos más abajo. */
+  function absolutasAEm(valor, propiedad) {
+    const factores = { px: 1 / 16, pt: 1 / 12, pc: 1, in: 6, cm: 96 / 2.54 / 16, mm: 96 / 25.4 / 16, q: 96 / 101.6 / 16 };
+    let minimo = -4, maximo = 4;
+    if (propiedad === 'font-size') { minimo = 0.65; maximo = 2.4; }
+    else if (propiedad === 'text-indent') { minimo = -3; maximo = 3; }
+    else if (propiedad === 'letter-spacing') { minimo = -0.35; maximo = 0.35; }
+    else if (propiedad === 'word-spacing') { minimo = -1; maximo = 1; }
+    return valor.replace(ABSOLUTAS, (_todo, numero, unidad) => {
+      const em = Math.max(minimo, Math.min(maximo, Number(numero) * factores[unidad.toLowerCase()]));
+      return `${Math.round(em * 1000) / 1000}em`;
+    });
+  }
+  // Ni paréntesis ni llaves ni comillas: sin `url()`, `calc()` ni nada que
+"""
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+
+          old = """    let prop = propiedad.trim().toLowerCase();
+    let val = valor.replace(/!\\s*important/gi, '').trim();
+    if (!prop || !val || val.length > 120 || VALOR_SUCIO.test(val)) return '';
+
+    // Los saltos de página del libro se convierten en saltos de columna: aquí
+"""
+          new = """    let prop = propiedad.trim().toLowerCase();
+    let val = valor.replace(/!\\s*important/gi, '').trim();
+    if (!prop || !val || val.length > 120 || VALOR_SUCIO.test(val)) return '';
+    if (/^-(?:epub|webkit|moz)-hyphens$/.test(prop)) prop = 'hyphens';
+    if (prop === 'word-wrap') prop = 'overflow-wrap';
+
+    // Los saltos de página del libro se convierten en saltos de columna: aquí
+"""
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+
+          old = """    // Medidas en píxeles o puntos: el libro las escribió para una pantalla que
+    // no es esta, y no crecen con A+ ni encogen con A−.
+    if (RELATIVA.has(prop) && ABSOLUTA.test(val)) return '';
+    if (prop === 'display' && !DISPLAY.test(val)) return '';
+"""
+          new = """    // Los anchos fijos siguen fuera: una caja de 546pt no cabe en un teléfono.
+    // Para tipografía y espaciado, en cambio, se conserva la intención editorial
+    // convirtiendo las medidas absolutas a em y limitándolas.
+    if (RELATIVA.has(prop) && ABSOLUTA.test(val)) {
+      if (prop === 'width' || prop === 'max-width') return '';
+      val = absolutasAEm(val, prop);
+    }
+    if (prop === 'display' && !DISPLAY.test(val)) return '';
+"""
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+
+          old = """      const url = urlDeImagen(datos.ruta);
+      if (img.tagName.toLowerCase() === 'image') img.setAttribute('href', url);
+      else img.setAttribute('src', url);
+      img.removeAttribute('xlink:href');
+      // Las medidas van en el marcado, no en el CSS: así el hueco de la
+      // ilustración existe desde el primer momento y el reparto en páginas no
+      // se descoloca cuando la imagen termina de descodificarse.
+      if (datos.ancho && datos.alto) {
+        img.setAttribute('width', String(datos.ancho));
+        img.setAttribute('height', String(datos.alto));
+      }
+      // Solo se descodifican las que se lleguen a ver: en un libro ilustrado
+      // esa es la diferencia entre unas pocas y todas a la vez.
+      img.setAttribute('loading', 'lazy');
+      img.setAttribute('decoding', 'async');
+"""
+          new = """      const url = urlDeImagen(datos.ruta);
+      const esSvg = img.tagName.toLowerCase() === 'image';
+      if (esSvg) {
+        // En SVG, width/height son coordenadas del viewBox, NO el tamaño real del
+        // JPG. Sustituir 566×734 por los píxeles intrínsecos de la imagen deforma
+        // o recorta portadas. Se conserva lo que escribió el EPUB.
+        img.setAttribute('href', url);
+        const svg = img.closest && img.closest('svg');
+        if (svg && svg.querySelectorAll('image').length === 1 && !svg.querySelector('text, foreignObject')) {
+          svg.classList.add('epub__lamina');
+          svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          img.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        }
+      } else {
+        img.setAttribute('src', url);
+        // En HTML sí son dimensiones intrínsecas: reservarlas evita que cambie el
+        // reparto de páginas cuando la imagen termina de descodificarse.
+        if (datos.ancho && datos.alto) {
+          img.setAttribute('width', String(datos.ancho));
+          img.setAttribute('height', String(datos.alto));
+        }
+        img.setAttribute('loading', 'lazy');
+        img.setAttribute('decoding', 'async');
+      }
+      img.removeAttribute('xlink:href');
+"""
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          js.write_text(s)
+
+          css = Path('public/css/lector.css')
+          c = css.read_text()
+          marker = """.hoja__flujo img {
+  max-width: 100%; height: auto; display: block; margin: 1em auto; break-inside: avoid;
+"""
+          assert c.count(marker) == 1
+          extra = """/* Las portadas/laminas EPUB hechas como SVG son páginas visuales completas.
+   Se encajan por su viewBox y nunca se estiran a la forma de la pantalla. */
+.hoja__flujo svg.epub__lamina {
+  display: block;
+  width: 100%; max-width: 100%; height: auto;
+  max-height: calc(var(--alto-hoja, 62vh) * 0.86);
+  margin: 0 auto 1em;
+  break-inside: avoid;
+  overflow: visible;
+}
+.hoja__flujo svg.epub__lamina > image { width: 100%; height: 100%; }
+
+"""
+          c = c.replace(marker, extra + marker)
+          css.write_text(c)
+
+      - run: npm ci
+      - run: npm run vendor
+      - run: npm install --no-save --package-lock=false jsdom@26.1.0
+
+      - name: Descargar EPUB real de prueba
+        run: curl --fail --location 'https://bdchamakes.sep.gob.mx/nebulosas/427aC_La_Republica-SEP-.epub' -o /tmp/republica.epub
+
+      - name: Comprobar sintaxis
+        run: |
+          node --check public/js/formatos.js
+          node --check public/js/epub-zip.js
+
+      - name: Probar portada y CSS con La República real
+        shell: bash
+        run: |
+          cat > /tmp/test-epub.mjs <<'JS'
+          import fs from 'node:fs';
+          import { JSDOM } from 'jsdom';
+          import JSZip from 'jszip';
+          import createDOMPurify from 'dompurify';
+
+          const dom = new JSDOM('<!doctype html><html><body></body></html>', { runScripts: 'dangerously', url: 'https://biblioteca.test/' });
+          const w = dom.window;
+          w.JSZip = JSZip;
+          w.DOMPurify = createDOMPurify(w);
+          w.URL.createObjectURL = () => 'blob:https://biblioteca.test/prueba';
+          w.URL.revokeObjectURL = () => {};
+          w.Worker = undefined;
+          w.eval(fs.readFileSync('public/js/epub-zip.js', 'utf8'));
+          w.eval(fs.readFileSync('public/js/formatos.js', 'utf8') + '\nwindow.__Formatos = Formatos;');
+          const b = fs.readFileSync('/tmp/republica.epub');
+          const buffer = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+          const libro = await w.__Formatos.abrir('epub', buffer, () => {});
+          if (!/text-indent:2em/.test(libro.css)) throw new Error('No se conservó la sangría editorial 24pt como 2em.');
+          if (/text-indent:24pt/.test(libro.css)) throw new Error('Quedó una medida absoluta sin normalizar.');
+          const html = libro.bloques(0)[0].html;
+          const doc = new JSDOM(`<body>${html}</body>`).window.document;
+          const svg = doc.querySelector('svg.epub__lamina');
+          const image = svg && svg.querySelector('image');
+          if (!svg || !image) throw new Error('No se detectó la portada SVG como lámina.');
+          if (svg.getAttribute('preserveAspectRatio') !== 'xMidYMid meet') throw new Error('La portada aún permite deformación.');
+          if (image.getAttribute('width') !== '566' || image.getAttribute('height') !== '734') throw new Error('Se alteraron las coordenadas originales de la portada SVG.');
+          if (!String(image.getAttribute('href') || '').startsWith('blob:')) throw new Error('La imagen de portada no quedó enlazada al recurso interno.');
+          console.log('OK: portada SVG conservada y CSS editorial normalizado.');
+          JS
+          node /tmp/test-epub.mjs
+
+      - name: Guardar cambio probado en la rama
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Biblioteca GPT'
+          git config user.email '108173876+DavisMtz@users.noreply.github.com'
+          git add public/js/formatos.js public/css/lector.css
+          git diff --cached --check
+          git commit -m 'Corregir portada y maquetación editorial de EPUB'
+          git push origin HEAD:fix/epub-editorial
