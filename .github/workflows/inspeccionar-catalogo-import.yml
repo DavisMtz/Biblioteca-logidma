@@ -1,0 +1,23 @@
+name: Inspeccionar catálogo para importar clásicos
+
+on:
+  push:
+    branches: ['import/platon-maquiavelo-kafka']
+    paths: ['.github/workflows/inspeccionar-catalogo-import.yml']
+
+jobs:
+  inspeccionar:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Libros relacionados ya existentes
+        run: |
+          npx wrangler d1 execute biblioteca-logidma --remote --command="SELECT id,titulo,autor,formato,clave_archivo,tamano,portada_url FROM libros WHERE lower(autor) LIKE '%plat%' OR lower(autor) LIKE '%kafka%' OR lower(autor) LIKE '%maquiavelo%' OR lower(titulo) LIKE '%diálogo%' ORDER BY autor,titulo;"
