@@ -13,7 +13,8 @@ DJVU="/tmp/${BOOK_ID}.djvu"
 
 curl --fail --location --retry 3 --retry-delay 2 "$SOURCE_URL" -o "$DJVU"
 file "$DJVU" | grep -q 'DjVu multiple page document'
-test "$(stat -c %s "$DJVU")" -gt 10000000
+SOURCE_SIZE=$(stat -c %s "$DJVU")
+test "$SOURCE_SIZE" -gt 10000000
 
 # Commons genera una miniatura JPEG de la primera página. Se valida antes de
 # guardarla como portada externa para evitar fichas con imágenes rotas.
@@ -22,29 +23,42 @@ file /tmp/portada.jpg | grep -q 'JPEG image data'
 test "$(stat -c %s /tmp/portada.jpg)" -gt 10000
 
 # El lector no abre DjVu. ddjvu conserva fielmente el facsímil, pero produce un
-# PDF enorme; Ghostscript lo lleva a una resolución razonable para lectura en
-# pantalla sin ocupar cientos de MB por tomo.
+# PDF enorme. Los escaneos de origen de más de 50 MB requieren una segunda
+# marcha de compresión para que un solo tomo no se lleve cientos de MB de R2.
+# Seguimos conservando más resolución en monocromo, donde vive el texto impreso.
+IMAGE_DPI=120
+MONO_DPI=300
+JPEG_Q=82
+if [ "$SOURCE_SIZE" -gt 50000000 ]; then
+  IMAGE_DPI=100
+  MONO_DPI=240
+  JPEG_Q=76
+fi
+
 ddjvu -format=pdf "$DJVU" "$RAW" 2>/dev/null
 gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite \
   -dCompatibilityLevel=1.5 \
-  -dColorImageDownsampleType=/Bicubic -dColorImageResolution=120 \
-  -dGrayImageDownsampleType=/Bicubic -dGrayImageResolution=120 \
-  -dMonoImageDownsampleType=/Subsample -dMonoImageResolution=300 \
+  -dColorImageDownsampleType=/Bicubic -dColorImageResolution="$IMAGE_DPI" \
+  -dGrayImageDownsampleType=/Bicubic -dGrayImageResolution="$IMAGE_DPI" \
+  -dMonoImageDownsampleType=/Subsample -dMonoImageResolution="$MONO_DPI" \
   -dAutoFilterColorImages=false -dColorImageFilter=/DCTEncode \
   -dAutoFilterGrayImages=false -dGrayImageFilter=/DCTEncode \
-  -dJPEGQ=82 \
+  -dJPEGQ="$JPEG_Q" \
   -sOutputFile="$PDF" "$RAW"
 
 PAGES=$(pdfinfo "$PDF" | awk '/^Pages:/ {print $2}')
 SIZE=$(stat -c %s "$PDF")
+echo "VALIDACION ${BOOK_ID}: origen=${SOURCE_SIZE} bytes, salida=${SIZE} bytes, paginas=${PAGES}, dpi=${IMAGE_DPI}, jpegq=${JPEG_Q}"
 test "${PAGES:-0}" -gt 150
 test "$SIZE" -gt 1000000
 test "$SIZE" -lt 180000000
 
-# Muestreo visual: fuerza a Poppler a rasterizar una página intermedia.
+# Muestreo visual: fuerza a Poppler a rasterizar una página intermedia. Si el
+# PDF es válido pero ilegible/corrupto, esta operación suele fallar o producir
+# una miniatura casi vacía.
 SAMPLE=$(( PAGES > 40 ? 20 : 1 ))
 pdftoppm -f "$SAMPLE" -singlefile -jpeg -r 100 "$PDF" /tmp/muestra >/dev/null 2>&1
-test "$(stat -c %s /tmp/muestra.jpg)" -gt 20000
+test "$(stat -c %s /tmp/muestra.jpg)" -gt 15000
 
 KEY="libros/${BOOK_ID}.pdf"
 npx wrangler r2 object put "biblioteca-logidma/${KEY}" \
