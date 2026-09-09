@@ -3,7 +3,9 @@ name: Reintentar Oráculo con control de rate limit
 on:
   push:
     branches: ['import/platon-maquiavelo-kafka']
-    paths: ['.github/workflows/reintentar-oraculo.yml']
+    paths:
+      - '.github/workflows/reintentar-oraculo.yml'
+      - 'scripts/importar-oraculo-wikisource.py'
 
 jobs:
   oraculo:
