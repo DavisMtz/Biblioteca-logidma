@@ -1,0 +1,95 @@
+name: Importar clásicos de estrategia y prudencia
+
+on:
+  push:
+    branches: ['import/platon-maquiavelo-kafka']
+    paths: ['.github/workflows/importar-poder-clasicos.yml']
+
+jobs:
+  arte_guerra:
+    name: El arte de la guerra
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: import/platon-maquiavelo-kafka
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Descargar, validar y subir EPUB oficial SEP
+        env:
+          BOOK_ID: suntzuarteguerrasep01
+          TITLE: El arte de la guerra
+          AUTHOR: Sun Tzu
+          SOURCE_URL: https://bdchamakes.sep.gob.mx/universos/544_El_arte_de_la_guerra-SEP-.epub
+          COVER_URL: https://bdchamakes.sep.gob.mx/imgs/universos/arteGuerra.png
+          CATEGORY: Filosofía
+          YEAR: ''
+          DESCRIPTION: Manual clásico de estrategia sobre liderazgo, conflicto, disciplina, información y posicionamiento. Edición EPUB de la Biblioteca Digital de la SEP, ISBN 978-607-643-062-0.
+        run: bash scripts/importar-epub-sep.sh
+
+  oraculo:
+    name: Oráculo manual y arte de prudencia
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: import/platon-maquiavelo-kafka
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Instalar generador EPUB
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pandoc
+          python -m pip install --quiet beautifulsoup4
+      - name: Reconstruir desde Wikisource, validar y subir
+        run: python scripts/importar-oraculo-wikisource.py
+
+  verificar:
+    name: Verificar clásicos incorporados
+    needs: [arte_guerra, oraculo]
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Confirmar los tres clásicos de la lista
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute biblioteca-logidma --remote --json --command="SELECT id,titulo,autor,formato,tamano,estado FROM libros WHERE id IN ('suntzuarteguerrasep01','gracianoraculo1647','maquiaveloprinsep01') ORDER BY autor;" > /tmp/resultado.json
+          cat /tmp/resultado.json
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/resultado.json'))
+          rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if {'id','titulo','estado'} <= x.keys(): rows.append(x)
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(data)
+          unique={r['id']:r for r in rows}
+          expected={'suntzuarteguerrasep01','gracianoraculo1647','maquiaveloprinsep01'}
+          assert set(unique)==expected, f'Faltan clásicos: {expected-set(unique)}'
+          assert all(r['estado']=='publicado' for r in unique.values())
+          print('VERIFICADO: Sun Tzu + Gracián + Maquiavelo están publicados')
+          PY
