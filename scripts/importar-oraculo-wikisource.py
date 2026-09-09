@@ -15,7 +15,9 @@ AUTHOR = "Baltasar Gracián"
 YEAR = 1647
 CATEGORY = "Filosofía"
 SOURCE_PAGE = "https://es.wikisource.org/wiki/Oráculo_manual_y_arte_de_prudencia"
-COVER_URL = "https://commons.wikimedia.org/wiki/Special:Redirect/file/Or%C3%A1culo_manual_y_arte_de_prudencia.jpg"
+# Portada histórica de la edición príncipe, dominio público. Se usa en catálogo;
+# el EPUB lleva además una portada SVG local para no depender de Wikimedia al abrirse.
+COVER_URL = "https://upload.wikimedia.org/wikipedia/commons/1/1e/Or%C3%A1culo_manual_y_arte_de_prudencia.jpg"
 PAGES = [
     ("Al lector", None, None),
     ("Aforismos (1-25)", 1, 25),
@@ -35,7 +37,7 @@ PAGES = [
 UA = "Biblioteca-logidma/1.0 (personal library; contact via github.com/DavisMtz/Biblioteca-logidma)"
 
 def get_url(url: str, retries: int = 5) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json,text/html,image/*,*/*"})
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json,text/html,*/*"})
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
@@ -80,7 +82,6 @@ def main() -> None:
 
     for index, (subpage, start, end) in enumerate(PAGES):
         if index:
-            # Wikimedia pide no hacer ráfagas desde clientes automatizados.
             time.sleep(1.5)
         html, text = fetch_page(subpage)
         if start is not None:
@@ -103,11 +104,19 @@ def main() -> None:
     html_path = out / "oraculo.html"
     html_path.write_text(html_doc, encoding="utf-8")
 
-    cover_path = out / "cover.jpg"
-    cover_path.write_bytes(get_url(COVER_URL))
-    cover_type = subprocess.check_output(["file", str(cover_path)], text=True)
-    if "JPEG image data" not in cover_type or cover_path.stat().st_size < 50000:
-        raise RuntimeError("La portada descargada parece inválida")
+    # Portada autocontenida: evita que una caída/rate-limit de Wikimedia rompa
+    # el EPUB. El catálogo conserva la referencia a la portada histórica real.
+    cover_path = out / "cover.svg"
+    cover_path.write_text("""<svg xmlns='http://www.w3.org/2000/svg' width='900' height='1400' viewBox='0 0 900 1400'>
+      <rect width='900' height='1400' fill='#f4efe4'/>
+      <rect x='55' y='55' width='790' height='1290' fill='none' stroke='#28231f' stroke-width='4'/>
+      <text x='450' y='330' text-anchor='middle' font-family='serif' font-size='54' fill='#28231f'>ORÁCULO MANUAL</text>
+      <text x='450' y='410' text-anchor='middle' font-family='serif' font-size='34' fill='#28231f'>Y ARTE DE PRUDENCIA</text>
+      <line x1='250' y1='500' x2='650' y2='500' stroke='#28231f' stroke-width='2'/>
+      <text x='450' y='650' text-anchor='middle' font-family='serif' font-size='38' fill='#28231f'>Baltasar Gracián</text>
+      <text x='450' y='730' text-anchor='middle' font-family='serif' font-size='28' fill='#55504a'>300 aforismos</text>
+      <text x='450' y='1120' text-anchor='middle' font-family='serif' font-size='30' fill='#28231f'>Huesca · 1647</text>
+    </svg>""", encoding="utf-8")
 
     epub_path = out / f"{BOOK_ID}.epub"
     run(
