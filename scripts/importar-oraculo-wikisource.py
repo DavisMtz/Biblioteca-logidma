@@ -6,6 +6,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
 
@@ -15,8 +16,6 @@ AUTHOR = "Baltasar Gracián"
 YEAR = 1647
 CATEGORY = "Filosofía"
 SOURCE_PAGE = "https://es.wikisource.org/wiki/Oráculo_manual_y_arte_de_prudencia"
-# Portada histórica de la edición príncipe, dominio público. Se usa en catálogo;
-# el EPUB lleva además una portada SVG local para no depender de Wikimedia al abrirse.
 COVER_URL = "https://upload.wikimedia.org/wikipedia/commons/1/1e/Or%C3%A1culo_manual_y_arte_de_prudencia.jpg"
 PAGES = [
     ("Al lector", None, None),
@@ -74,6 +73,32 @@ def fetch_page(subpage: str) -> tuple[str, str]:
 def run(*args: str) -> None:
     subprocess.run(args, check=True)
 
+def validate_epub(epub_path: Path) -> None:
+    if epub_path.stat().st_size < 20000:
+        raise RuntimeError("EPUB generado anormalmente pequeño")
+    if subprocess.check_output(["unzip", "-p", str(epub_path), "mimetype"], text=True).strip() != "application/epub+zip":
+        raise RuntimeError("EPUB inválido: mimetype incorrecto")
+    run("unzip", "-t", str(epub_path))
+
+    # Validación semántica dentro del archivo final: no confiamos en el peso.
+    # Extraemos todos los XHTML/HTML del EPUB y verificamos que el texto real
+    # sea sustancial y conserve hitos a lo largo de los 300 aforismos.
+    chunks = []
+    with zipfile.ZipFile(epub_path) as zf:
+        for name in zf.namelist():
+            if name.lower().endswith((".xhtml", ".html", ".htm")):
+                raw = zf.read(name).decode("utf-8", errors="ignore")
+                chunks.append(BeautifulSoup(raw, "html.parser").get_text("\n", strip=True))
+    final_text = "\n".join(chunks)
+    if len(final_text) < 50000:
+        raise RuntimeError(f"EPUB con poco texto útil: {len(final_text)} caracteres")
+    if AUTHOR not in final_text or "Oráculo" not in final_text:
+        raise RuntimeError("EPUB final no conserva título/autor")
+    for n in (1, 25, 50, 100, 150, 200, 250, 275, 300):
+        if not re.search(rf"(?:^|\s){n}\.", final_text):
+            raise RuntimeError(f"EPUB final perdió el aforismo {n}")
+    print(f"EPUB VALIDADO: {epub_path.stat().st_size} bytes, {len(final_text)} caracteres útiles")
+
 def main() -> None:
     out = Path("/tmp/oraculo")
     out.mkdir(parents=True, exist_ok=True)
@@ -93,6 +118,8 @@ def main() -> None:
         combined_text.append(text)
 
     all_text = "\n".join(combined_text)
+    if len(all_text) < 50000:
+        raise RuntimeError(f"Fuente incompleta: solo {len(all_text)} caracteres")
     for n in (1, 25, 50, 100, 150, 200, 250, 275, 300):
         if not re.search(rf"(?:^|\s){n}\.", all_text):
             raise RuntimeError(f"Validación global falló: falta el aforismo {n}")
@@ -104,8 +131,6 @@ def main() -> None:
     html_path = out / "oraculo.html"
     html_path.write_text(html_doc, encoding="utf-8")
 
-    # Portada autocontenida: evita que una caída/rate-limit de Wikimedia rompa
-    # el EPUB. El catálogo conserva la referencia a la portada histórica real.
     cover_path = out / "cover.svg"
     cover_path.write_text("""<svg xmlns='http://www.w3.org/2000/svg' width='900' height='1400' viewBox='0 0 900 1400'>
       <rect width='900' height='1400' fill='#f4efe4'/>
@@ -128,11 +153,7 @@ def main() -> None:
         "--epub-cover-image", str(cover_path),
         "-o", str(epub_path),
     )
-    if epub_path.stat().st_size < 100000:
-        raise RuntimeError("EPUB generado demasiado pequeño")
-    if subprocess.check_output(["unzip", "-p", str(epub_path), "mimetype"], text=True).strip() != "application/epub+zip":
-        raise RuntimeError("EPUB inválido")
-    run("unzip", "-t", str(epub_path))
+    validate_epub(epub_path)
 
     size = epub_path.stat().st_size
     key = f"libros/{BOOK_ID}.epub"
