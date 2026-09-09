@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import json
-import os
 import re
 import subprocess
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -14,7 +15,7 @@ AUTHOR = "Baltasar Gracián"
 YEAR = 1647
 CATEGORY = "Filosofía"
 SOURCE_PAGE = "https://es.wikisource.org/wiki/Oráculo_manual_y_arte_de_prudencia"
-COVER_URL = "https://commons.wikimedia.org/wiki/Special:Redirect/file/Oráculo_manual_y_arte_de_prudencia.jpg"
+COVER_URL = "https://commons.wikimedia.org/wiki/Special:Redirect/file/Or%C3%A1culo_manual_y_arte_de_prudencia.jpg"
 PAGES = [
     ("Al lector", None, None),
     ("Aforismos (1-25)", 1, 25),
@@ -31,12 +32,22 @@ PAGES = [
     ("Aforismos (276-300)", 276, 300),
 ]
 
-UA = "Biblioteca-logidma/1.0 (+personal library import; source attribution retained)"
+UA = "Biblioteca-logidma/1.0 (personal library; contact via github.com/DavisMtz/Biblioteca-logidma)"
 
-def get_url(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read()
+def get_url(url: str, retries: int = 5) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json,text/html,image/*,*/*"})
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or attempt == retries - 1:
+                raise
+            retry_after = exc.headers.get("Retry-After")
+            delay = int(retry_after) if retry_after and retry_after.isdigit() else min(5 * (2 ** attempt), 40)
+            print(f"Wikimedia rate limit 429; reintento en {delay}s ({attempt + 1}/{retries})")
+            time.sleep(delay)
+    raise RuntimeError("No se pudo descargar la fuente")
 
 def fetch_page(subpage: str) -> tuple[str, str]:
     page = f"Oráculo manual y arte de prudencia/{subpage}"
@@ -67,11 +78,12 @@ def main() -> None:
     sections = []
     combined_text = []
 
-    for subpage, start, end in PAGES:
+    for index, (subpage, start, end) in enumerate(PAGES):
+        if index:
+            # Wikimedia pide no hacer ráfagas desde clientes automatizados.
+            time.sleep(1.5)
         html, text = fetch_page(subpage)
         if start is not None:
-            # Verificación conservadora: cada bloque debe contener sus extremos
-            # como números de aforismo visibles antes de generar el EPUB.
             if not re.search(rf"(?:^|\s){start}\.", text):
                 raise RuntimeError(f"No se encontró el aforismo inicial {start} en {subpage}")
             if not re.search(rf"(?:^|\s){end}\.", text):
@@ -93,8 +105,8 @@ def main() -> None:
 
     cover_path = out / "cover.jpg"
     cover_path.write_bytes(get_url(COVER_URL))
-    run("file", str(cover_path))
-    if cover_path.stat().st_size < 50000:
+    cover_type = subprocess.check_output(["file", str(cover_path)], text=True)
+    if "JPEG image data" not in cover_type or cover_path.stat().st_size < 50000:
         raise RuntimeError("La portada descargada parece inválida")
 
     epub_path = out / f"{BOOK_ID}.epub"
