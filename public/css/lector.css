@@ -314,3 +314,40 @@
   .lector__cuenta { padding-inline: var(--s1); font-size: var(--fs-xs); }
   .lector__cuenta small { margin-inline-start: 6px; padding-inline-start: 6px; }
 }
+
+/* ---------------- lector embebido en VEO (?embed=veo) ----------------
+
+   Mismo lector, menos cáscara. Se recogen los mandos que solo tienen sentido
+   dentro de la aplicación entera —compartir el enlace, descargar el archivo—
+   porque dentro de VEO el usuario ya está leyendo y esos dos lo sacan fuera.
+   Lo que se queda es lo que hace falta para leer: título, autor, A+/A−, zoom,
+   tema, paginación y progreso.
+
+   Todo esto es aditivo y cuelga de `[data-embed="veo"]`: sin ese atributo, que
+   solo pone `lector.js` cuando la URL lo pide, el lector normal no se entera de
+   que este bloque existe. */
+
+[data-embed="veo"] #btn-compartir,
+[data-embed="veo"] #btn-descargar { display: none; }
+
+/* La barra se estrecha: dentro de VEO el lector no ocupa la pantalla entera y
+   cada píxel de alto que se le quite a la cabecera es uno más de página. */
+[data-embed="veo"] .lector__barra { padding-top: 8px; padding-bottom: 8px; }
+
+/* La salida hacia la aplicación completa: discreta, en el sitio donde estaba el
+   «volver al catálogo», y sin el peso de un botón. */
+[data-embed="veo"] #btn-biblioteca {
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  opacity: .62;
+  transition: opacity .2s ease, color .2s ease;
+}
+[data-embed="veo"] #btn-biblioteca:hover,
+[data-embed="veo"] #btn-biblioteca:focus-visible { opacity: 1; }
+/* El icono que traía el enlace era una flecha de «volver» y aquí mentiría: lo
+   que hace ahora es salir a otra aplicación, y eso lo dice la ↗ del texto. */
+[data-embed="veo"] #btn-biblioteca svg { display: none; }
+/* En el teléfono el nombre no se esconde: es la única atribución que hay. */
+[data-embed="veo"] #btn-biblioteca .oculto-movil { display: inline; }

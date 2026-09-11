@@ -218,11 +218,80 @@ async function puedeLeer(c: any): Promise<boolean> {
   return sesionDeLector(c);
 }
 
+/* ---------- quién puede llamar a esta API desde otra página ----------
+
+   VEO (veo.logidma.com) lee el catálogo para ofrecer libros dentro de su modo
+   discreto. Es otro ORIGEN, así que necesita CORS; pero es el mismo SITIO
+   (`logidma.com`), y esa diferencia lo decide casi todo:
+
+     · Las galletas `bib_sesion` y `bib_lector` son `SameSite=Lax`. En una
+       petición desde veo.logidma.com a biblioteca.logidma.com el navegador las
+       considera del mismo sitio y las manda igual. No hay que bajar nada a
+       `SameSite=None`, que es lo que habría hecho falta entre dominios de
+       verdad distintos y lo que habría abierto la puerta a CSRF desde
+       cualquier parte.
+     · Por eso mismo el LECTOR embebido no aparece aquí: dentro del iframe la
+       página ES biblioteca.logidma.com, así que sus peticiones son del mismo
+       origen y no pasan por nada de esto. Lo de abajo solo abre la puerta al
+       catálogo que VEO pinta en su propio selector.
+
+   Reglas que no se pueden relajar sin pensarlo dos veces:
+     · Nunca `*`. Con credenciales el navegador lo rechaza, y sin ellas la
+       biblioteca cerrada contestaría 401 a todo el mundo igualmente; pero
+       además un `*` invitaría a cualquier web a sondear el catálogo.
+     · Solo GET, y solo estas dos rutas. Un POST a /api/sesion desde otra
+       página sería un intento de adivinar la clave con el navegador de otro:
+       al no figurar POST en los métodos, el preflight lo corta.
+     · `Vary: Origin` siempre que se responda con CORS, o la caché de Cloudflare
+       le serviría a un origen la cabecera de otro.
+
+   La lista gemela, para poder enmarcar el lector, está en `public/_headers`. */
+const ORIGENES_VEO = [
+  'https://veo.logidma.com',
+  'https://x.logidma.com',
+];
+/* Las vistas previas del Worker de VEO. `logidma.workers.dev` es el subdominio
+   de esta cuenta: solo ella puede publicar ahí. */
+const PREVIA_VEO = /^https:\/\/[a-z0-9-]+\.logidma\.workers\.dev$/;
+
+function origenPermitido(origen: string): boolean {
+  return ORIGENES_VEO.includes(origen) || PREVIA_VEO.test(origen);
+}
+
+/** Lo único que VEO necesita leer: el catálogo y la ficha de un libro. */
+const RUTAS_PUBLICAS_CORS = /^\/api\/(sesion|libros)(\/[^/]+)?$/;
+
 /* ---------- middleware ---------- */
 
 app.use('/api/*', async (c, next) => {
+  const origen = c.req.header('origin') || '';
+  const abierta = !!origen && origenPermitido(origen) && RUTAS_PUBLICAS_CORS.test(new URL(c.req.url).pathname);
+
+  if (c.req.method === 'OPTIONS') {
+    // El preflight se contesta aquí y no sigue: no tiene galletas ni sesión que
+    // mirar, y dejarlo pasar al resto de la cadena solo daría un 404.
+    if (!abierta) return c.body(null, 403);
+    return c.body(null, 204, {
+      'access-control-allow-origin': origen,
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-methods': 'GET, OPTIONS',
+      'access-control-allow-headers': 'content-type',
+      'access-control-max-age': '86400',
+      vary: 'Origin',
+    });
+  }
+
   c.set('admin', await sesionValida(c));
   await next();
+
+  // Después de `next()`, para que la cabecera viaje también en los errores: un
+  // 401 que el navegador no deja leer es indistinguible de la biblioteca caída,
+  // y VEO necesita poder contar la diferencia para ofrecer «Acceder».
+  if (abierta && c.req.method === 'GET') {
+    c.res.headers.set('access-control-allow-origin', origen);
+    c.res.headers.set('access-control-allow-credentials', 'true');
+    c.res.headers.append('vary', 'Origin');
+  }
 });
 
 const soloAdmin = async (c: any, next: any) => {
@@ -667,19 +736,40 @@ app.post('/api/portada/firma', soloAdmin, async (c) => {
 
 /* ---------- marcador de lectura ---------- */
 
+/**
+ * De quién es el marcador que se está leyendo o escribiendo.
+ *
+ * Hoy devuelve siempre `'general'`, y eso NO es un descuido pendiente de
+ * arreglar: la biblioteca se reparte entre conocidos y un marcador por libro es
+ * lo que se quiso (ver la tabla `marcadores` en 0001_inicial.sql, cuyo comentario
+ * lo dice). Existe como función, y no como literal repetido en las dos consultas,
+ * porque la clave primaria ya es `(libro_id, lector)`: el día que haya lectores
+ * distinguibles, esto es lo ÚNICO que hay que cambiar, y los marcadores que ya
+ * existen se quedan donde están bajo su `'general'`.
+ *
+ * Lo que no se va a hacer por las buenas: acuñar aquí un identificador anónimo
+ * por navegador. Sonaba a mejora gratis y no lo es —partiría en dos el marcador
+ * de quien ya está leyendo: el suyo se quedaría bajo `'general'` y sus visitas
+ * siguientes mirarían una fila nueva y vacía—. Estrenar identificadores exige
+ * migrar lo que hay, y eso es otra tarea con su propia decisión detrás.
+ */
+function lectorDe(_c: unknown): string {
+  return 'general';
+}
+
 app.get('/api/marcador/:id', soloLectores, async (c) => {
   const fila = await c.env.DB.prepare(
-    `SELECT pagina FROM marcadores WHERE libro_id = ? AND lector = 'general'`,
-  ).bind(c.req.param('id')).first<{ pagina: number }>();
+    `SELECT pagina FROM marcadores WHERE libro_id = ? AND lector = ?`,
+  ).bind(c.req.param('id'), lectorDe(c)).first<{ pagina: number }>();
   return c.json({ pagina: fila?.pagina || 1 });
 });
 
 app.put('/api/marcador/:id', soloLectores, async (c) => {
   const { pagina } = await c.req.json<{ pagina: number }>();
   await c.env.DB.prepare(
-    `INSERT INTO marcadores (libro_id, lector, pagina, actualizado_en) VALUES (?, 'general', ?, ?)
+    `INSERT INTO marcadores (libro_id, lector, pagina, actualizado_en) VALUES (?, ?, ?, ?)
      ON CONFLICT(libro_id, lector) DO UPDATE SET pagina = excluded.pagina, actualizado_en = excluded.actualizado_en`,
-  ).bind(c.req.param('id'), Math.max(1, Number(pagina) || 1), ahora()).run();
+  ).bind(c.req.param('id'), lectorDe(c), Math.max(1, Number(pagina) || 1), ahora()).run();
   return c.json({ ok: true });
 });
 

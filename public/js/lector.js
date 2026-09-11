@@ -19,7 +19,96 @@ const deslizador = $('deslizador');
 const btnAnterior = $('anterior');
 const btnSiguiente = $('siguiente');
 
-const idLibro = new URLSearchParams(location.search).get('id') || '';
+const parametros = new URLSearchParams(location.search);
+const idLibro = parametros.get('id') || '';
+
+/* ---------------- modo embebido ----------------
+
+   `?embed=veo` es el MISMO lector, no otro. Nada de lo que hay debajo cambia:
+   los mismos formatos, el mismo reparto en páginas, el mismo marcador. Lo
+   único que cambia es que se recogen los mandos que solo tienen sentido dentro
+   de la aplicación entera (compartir, descargar) y que se le cuenta a quien
+   embebe por dónde va la lectura.
+
+   Que sea el mismo lector es el punto: un lector paralelo dentro de VEO
+   divergiría en tres meses y habría que arreglar cada cosa dos veces.
+
+   Nota sobre el marcador, porque no es evidente y sostiene toda la
+   integración: dentro del iframe esta página SIGUE SIENDO
+   biblioteca.logidma.com. Su `localStorage` es el mismo de siempre —VEO está
+   en otro origen pero en el mismo sitio (`logidma.com`), así que el navegador
+   no lo separa—, de modo que `bib.punto.<id>` que se escribe leyendo dentro de
+   VEO es el que encuentra el lector normal, y al revés. No hay nada que
+   sincronizar. */
+const embebido = parametros.get('embed') === 'veo';
+
+/* Quién puede hablar con esta página por postMessage. Es la lista gemela de
+   `frame-ancestors` en `public/_headers` y de `ORIGENES_VEO` en `src/index.ts`:
+   si cambia una, cambian las tres. */
+const ORIGENES_VEO = ['https://veo.logidma.com', 'https://x.logidma.com'];
+const PREVIA_VEO = /^https:\/\/[a-z0-9-]+\.logidma\.workers\.dev$/;
+const origenDeVeo = (o) => ORIGENES_VEO.includes(o) || PREVIA_VEO.test(o);
+
+/* El origen del padre no se adivina ni se lee de la URL —eso lo escribiría
+   cualquiera—: se espera a que salude y se usa el `origin` del evento, que lo
+   pone el navegador y no se puede falsificar. Hasta que llegue ese saludo no
+   se manda nada a ninguna parte. */
+let padre = null;
+
+function avisar(tipo, extra) {
+  if (!embebido || !padre || !window.parent || window.parent === window) return;
+  try {
+    window.parent.postMessage({ type: tipo, bookId: idLibro, ...extra }, padre);
+  } catch { /* el padre se fue */ }
+}
+
+if (embebido) {
+  document.documentElement.dataset.embed = 'veo';
+  addEventListener('message', (e) => {
+    if (!origenDeVeo(e.origin)) return;
+    const d = e.data;
+    if (!d || typeof d !== 'object' || d.type !== 'veo:hola') return;
+    padre = e.origin;
+    // VEO insiste con el saludo hasta que le contestan, porque el iframe puede
+    // no tener aún este oyente puesto cuando manda el primero.
+    avisar('bib:ready', { titulo: (libro && libro.titulo) || '', autor: (libro && libro.autor) || '' });
+    if (total > 1) anunciarProgreso();
+  });
+}
+
+/**
+ * Dentro de VEO, el botón de arriba a la izquierda deja de ser «volver al
+ * catálogo» —no hay catálogo al que volver, estamos dentro de otra app— y pasa
+ * a ser lo que el dueño pidió: una salida discreta hacia la aplicación
+ * completa, con ESTE libro abierto. Atribución y puerta, no anuncio.
+ *
+ * Se avisa además al padre (`bib:open-library`) para que VEO pueda decidir qué
+ * hacer; si no hace nada, el enlace abre una pestaña por su cuenta y ya está.
+ * Por eso es un `<a href>` de verdad y no un botón: si el aviso se pierde, el
+ * enlace sigue funcionando.
+ */
+function ponerSalidaABiblioteca() {
+  const a = $('btn-biblioteca');
+  if (!a) return;
+  a.href = `/leer?id=${encodeURIComponent(idLibro)}`;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.setAttribute('aria-label', 'Abrir este libro en Biblioteca Logidma');
+  a.title = 'Abrir en Biblioteca Logidma';
+  a.innerHTML = '<span>Biblioteca Logidma</span><span aria-hidden="true">\u2197</span>';
+  a.addEventListener('click', () => avisar('bib:open-library', { url: new URL(a.href, location.origin).href }));
+}
+
+/** Por dónde va la lectura, para que VEO pueda pintar «Continuar leyendo».
+ *  VEO no es la fuente de la verdad del marcador —eso sigue siendo cosa de
+ *  esta página y del servidor—: esto es solo para dibujar una tarjeta. */
+function anunciarProgreso() {
+  avisar('bib:progress', {
+    page: pagina,
+    total,
+    percent: total > 1 ? Math.round(((pagina - 1) / (total - 1)) * 100) : 0,
+  });
+}
 
 /* La hoja ocupa la ventana exacta y el pie va pegado abajo. Donde hay `dvh` eso
    lo resuelve el CSS solo. Donde no —navegadores dentro de una app, iOS
@@ -109,9 +198,11 @@ async function iniciar() {
   }
 
   document.title = `${libro.titulo} · Biblioteca Logidma`;
+  avisar('bib:ready', { titulo: libro.titulo, autor: libro.autor || '', formato: libro.formato });
   $('titulo-libro').textContent = libro.titulo;
   $('autor-libro').textContent = [libro.autor, libro.anio].filter(Boolean).join(' · ');
   $('btn-descargar').href = `/archivo/${encodeURIComponent(libro.id)}?descargar=1`;
+  if (embebido) ponerSalidaABiblioteca();
 
   try { tamanoTexto = Number(localStorage.getItem(CLAVE_TAMANO)) || 18; } catch { /* sin almacenamiento */ }
   // El tamaño vive en la hoja, no en el flujo: la caja que mide también lo
@@ -1117,6 +1208,11 @@ function apuntarMarcador() {
         JSON.stringify({ bloque: bloqueMontado, razon }));
     }
   } catch { /* sin almacenamiento */ }
+  // Enganchado aquí a propósito: `apuntarMarcador` es el único sitio por el que
+  // pasa TODO cambio de posición, venga de la tecla, del gesto o del
+  // deslizador. Avisar desde cada uno de ellos sería repetirlo cuatro veces y
+  // olvidarse en el quinto.
+  anunciarProgreso();
   clearTimeout(temporizadorMarcador);
   temporizadorMarcador = setTimeout(() => {
     Bib.api(`/api/marcador/${encodeURIComponent(idLibro)}`, {
