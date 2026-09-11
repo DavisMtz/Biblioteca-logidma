@@ -1,0 +1,49 @@
+# Cabeceras de los ficheros estáticos (los sirve la plataforma, no el Worker:
+# `run_worker_first` en wrangler.jsonc solo desvía /api/* y /archivo/*, así que
+# esto es el ÚNICO sitio donde se les puede poner cabecera a las páginas).
+#
+# `frame-ancestors` se añade aquí por primera vez: hasta ahora la biblioteca no
+# declaraba ninguna y CUALQUIER sitio podía meterla en un iframe. Esto la cierra
+# y abre una sola rendija, la del lector, para VEO.
+#
+# OJO al editar: si dos reglas de este archivo casan con la misma ruta y las dos
+# traen `Content-Security-Policy`, el navegador aplica LAS DOS y manda la más
+# restrictiva — o sea que un `frame-ancestors 'self'` en `/*` anularía el
+# permiso de abajo sin que nada avise. Por eso aquí no hay comodines con CSP:
+# cada página lleva la suya, escrita entera.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# El lector es lo único embebible, y solo desde VEO.
+#   veo.logidma.com y x.logidma.com son los dos dominios de producción de VEO.
+#   *.logidma.workers.dev es el subdominio de la cuenta —solo ella puede crear
+#   workers ahí— y hace falta para probar las vistas previas antes de desplegar.
+# La lista gemela, para las peticiones a la API, está en `ORIGENES_VEO`
+# (src/index.ts); si cambia una, cambia la otra.
+/leer
+  Content-Security-Policy: frame-ancestors 'self' https://veo.logidma.com https://x.logidma.com https://*.logidma.workers.dev
+
+/leer.html
+  Content-Security-Policy: frame-ancestors 'self' https://veo.logidma.com https://x.logidma.com https://*.logidma.workers.dev
+
+# El resto de la aplicación no se embebe en ninguna parte. El panel sobre todo:
+# enmarcarlo es la mitad de un secuestro de clics.
+/
+  Content-Security-Policy: frame-ancestors 'self'
+
+/index.html
+  Content-Security-Policy: frame-ancestors 'self'
+
+/admin
+  Content-Security-Policy: frame-ancestors 'self'
+
+/admin.html
+  Content-Security-Policy: frame-ancestors 'self'
+
+/entrar
+  Content-Security-Policy: frame-ancestors 'self'
+
+/entrar.html
+  Content-Security-Policy: frame-ancestors 'self'

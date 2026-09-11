@@ -202,6 +202,79 @@ Decisiones que no se deducen mirando el código:
   sube el código y luego falla con un error de autenticación que parece que no
   se desplegó.
 
+## El lector embebido en VEO (`?embed=veo`)
+
+VEO Proxy (`veo.logidma.com`, el otro repositorio del dueño) tiene un «modo
+discreto» donde se lee mientras un vídeo suena de fondo. Desde el 11/09/2026
+puede leerse ahí un libro de esta biblioteca, y lo que se embebe es **este
+lector, el de verdad** —no una copia—: `/leer?id=<id>&embed=veo`.
+
+Que sea el mismo y no otro es la decisión entera. Un lector paralelo dentro de
+VEO divergiría en tres meses y habría que arreglar cada formato dos veces.
+
+- **Qué cambia con `embed=veo`:** se pone `data-embed="veo"` en el `<html>` y el
+  CSS recoge lo que solo tiene sentido dentro de la aplicación completa
+  (compartir, descargar) y estrecha la barra. Se queda todo lo de leer: título,
+  autor, A+/A−, zoom, tema, paginación, gestos, teclado y progreso. El botón de
+  arriba a la izquierda deja de ser «volver al catálogo» —no hay catálogo
+  detrás— y pasa a ser una salida discreta: **Biblioteca Logidma ↗**, que abre
+  ESE libro en la aplicación completa. Es un `<a href>` de verdad, así que
+  funciona aunque el aviso al padre se pierda.
+- **Sin `embed=veo` no cambia nada.** Todo el bloque cuelga de ese atributo, que
+  solo escribe `lector.js` cuando la URL lo pide.
+- **Quién puede embeberlo:** `frame-ancestors` en `public/_headers` lo limita a
+  `veo.logidma.com`, `x.logidma.com` y `*.logidma.workers.dev` (las vistas
+  previas de la cuenta). Hasta entonces la biblioteca **no declaraba ninguna
+  cabecera de enmarcado y cualquier web podía meterla en un iframe**: esto lo
+  cierra y abre una sola rendija. El resto de páginas —`/admin` el que más—
+  quedan en `frame-ancestors 'self'`.
+  *Al editar ese archivo:* si dos reglas casan con la misma ruta y las dos
+  traen CSP, el navegador aplica las dos y manda la más restrictiva. Por eso no
+  hay comodines con CSP ahí: cada página lleva la suya escrita entera.
+- **Eventos que emite** (a `window.parent`, con el origen exacto, nunca `'*'`):
+
+  | Mensaje | Cuándo | Para qué |
+  | --- | --- | --- |
+  | `bib:ready` | al abrir el libro | VEO quita su pantalla de espera |
+  | `bib:progress` | en cada cambio de posición | VEO pinta «Continuar leyendo» |
+  | `bib:open-library` | al pulsar la salida | VEO se entera de que se van |
+
+  El padre saluda primero con `veo:hola` y el lector aprende su origen del
+  `event.origin` —que pone el navegador y no se puede falsificar— en vez de
+  deducirlo de la URL o del `referrer`. Hasta que llega ese saludo no se manda
+  nada a ninguna parte. `bib:progress` va enganchado a `apuntarMarcador`, que es
+  el único sitio por el que pasa TODO cambio de posición.
+
+- **Autenticación: no se tocó, y no hacía falta.** `veo.logidma.com` y
+  `biblioteca.logidma.com` son orígenes distintos pero el **mismo sitio**
+  (`logidma.com`). Dentro del iframe esta página sigue siendo
+  biblioteca.logidma.com: sus peticiones son del mismo origen, las galletas
+  `bib_sesion` y `bib_lector` viajan aunque sean `SameSite=Lax`, y el
+  `localStorage` es el mismo —el navegador no parte el de un embebido del mismo
+  sitio—. **Por eso el marcador es uno solo:** `bib.punto.<id>` escrito leyendo
+  dentro de VEO es el que encuentra el lector normal, y al revés. No hubo que
+  bajar nada a `SameSite=None`, que es lo que habría hecho falta entre dominios
+  de verdad distintos y lo que habría abierto la puerta a CSRF.
+  Con la biblioteca cerrada, VEO recibe el `401` de siempre y enseña «Biblioteca
+  Logidma está protegida» con un enlace a `/entrar`. **VEO no conoce ninguna
+  clave y no puede saltarse la puerta**; comprobado pidiendo el catálogo a pelo
+  desde su página.
+- **CORS** (`ORIGENES_VEO` en `src/index.ts`): solo para esos orígenes, solo
+  `GET`, y solo en `/api/libros`, `/api/libros/:id` y `/api/sesion` —que es lo
+  único que VEO lee para pintar su selector—. Nunca `*`, y con `Vary: Origin`
+  para que la caché no le sirva a un origen la cabecera de otro. El preflight de
+  cualquier otro método o de cualquier otro origen se contesta `403`. El lector
+  embebido **no** pasa por nada de esto: desde dentro del iframe es del mismo
+  origen.
+- **El marcador y el futuro `lector_id`.** La tabla `marcadores` ya tiene clave
+  primaria `(libro_id, lector)`; lo que estaba clavado a `'general'` eran las
+  dos consultas, y ahora pasan por `lectorDe()`. Hoy devuelve `'general'` y eso
+  NO es un pendiente: un marcador por libro es lo que se quiso. Lo que no se
+  hará por las buenas es acuñar ahí un identificador anónimo por navegador:
+  partiría en dos el marcador de quien ya está leyendo —el suyo se quedaría bajo
+  `'general'` y sus visitas siguientes mirarían una fila vacía—. Estrenar
+  identificadores exige migrar lo que hay.
+
 ## Trabajar en local
 
 ```bash
