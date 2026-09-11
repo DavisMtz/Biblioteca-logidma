@@ -330,6 +330,43 @@
 [data-embed="veo"] #btn-compartir,
 [data-embed="veo"] #btn-descargar { display: none; }
 
+/* El tema también se recoge, y no por capricho: dentro de VEO la paleta la
+   manda VEO (llega por la URL, ver `aplicarPaletaDeQuienEmbebe` en lector.js),
+   así que un botón que cambiara a sepia o a oscuro rompería justo la fusión
+   que se busca. Quien quiera leer con otro tema lo tiene en la aplicación
+   completa, a un clic de la salida ↗. */
+[data-embed="veo"] #btn-tema { display: none; }
+
+/* ---- que sea el MISMO papel, no uno parecido ----
+
+   Fuera del embebido, la hoja es una tarjeta blanca con sombra flotando sobre
+   un gris cálido, y eso está bien cuando el lector ocupa la pantalla entera:
+   se lee como una hoja sobre una mesa. Dentro de VEO se leía como una tarjeta
+   de otra aplicación pegada encima, que es lo que el dueño reportó.
+
+   Aquí la hoja deja de ser tarjeta: mismo fondo que todo lo demás, sin sombra
+   y sin esquinas. El marco ya lo pone VEO por fuera. */
+[data-embed="veo"] .cuerpo-lector,
+[data-embed="veo"] .lector__barra,
+[data-embed="veo"] .lector__pie { background: var(--bg); }
+[data-embed="veo"] .hoja {
+  background: var(--bg);
+  box-shadow: none;
+  border-radius: 0;
+}
+/* `--surface-2` se usa para cosas que SÍ tienen que despegarse del papel —la
+   pista del progreso, los bloques de código de un EPUB—. Se deriva del fondo
+   en vez de pedir otro color por la URL: un parámetro más que casi nunca
+   cambiaría, y que si alguien olvidara mandar dejaría la barra invisible. */
+[data-embed="veo"] {
+  --surface: var(--bg);
+  --surface-2: color-mix(in srgb, var(--bg) 93%, #000);
+}
+/* Los filos de la barra y del pie, más suaves: dentro del papel de VEO una
+   línea de borde completa parte la caja en tres en vez de separarla. */
+[data-embed="veo"] .lector__barra { border-bottom-color: color-mix(in srgb, var(--border) 55%, transparent); }
+[data-embed="veo"] .lector__pie { border-top-color: color-mix(in srgb, var(--border) 55%, transparent); }
+
 /* La barra se estrecha: dentro de VEO el lector no ocupa la pantalla entera y
    cada píxel de alto que se le quite a la cabecera es uno más de página. */
 [data-embed="veo"] .lector__barra { padding-top: 8px; padding-bottom: 8px; }

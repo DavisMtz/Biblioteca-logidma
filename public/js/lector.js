@@ -62,8 +62,47 @@ function avisar(tipo, extra) {
   } catch { /* el padre se fue */ }
 }
 
+/* ---------------- la paleta la manda quien embebe ----------------
+
+   El lector vivía con sus propios colores —papel blanco sobre un gris cálido—
+   y dentro del modo discreto de VEO eso se veía como lo que era: una tarjeta
+   de otra aplicación pegada encima. El dueño lo reportó así, y tiene razón:
+   para que se funda tienen que ser el MISMO papel, no dos parecidos.
+
+   Así que VEO manda su paleta en la URL y aquí se aplica. Va en parámetros y
+   no clavada en este archivo a propósito: el papel es de VEO, y si algún día
+   cambia sus tonos no puede hacer falta desplegar la biblioteca para que
+   vuelvan a coincidir.
+
+   Cada valor se valida como SEIS DÍGITOS HEXADECIMALES y se aplica con
+   `setProperty`, nunca concatenando texto dentro de una hoja de estilos: un
+   parámetro de URL lo escribe cualquiera, y `--bg: red; } body { … }` sería
+   una inyección de CSS en toda regla. Lo que no pase el filtro se ignora y
+   manda el color de siempre. */
+const HEX = /^[0-9a-fA-F]{6}$/;
+const COLORES_EMBED = {
+  bg: '--bg',        // el fondo del papel
+  txt: '--text',     // la tinta
+  mut: '--text-mut', // lo secundario
+  ac: '--accent',    // el acento
+  bd: '--border',    // los filos
+};
+
+function aplicarPaletaDeQuienEmbebe() {
+  const raiz = document.documentElement;
+  // El tema guardado se fija a «claro» antes de pintar los tonos de VEO: si se
+  // dejara en automático, `prefers-color-scheme: dark` metería la paleta
+  // oscura por debajo y el lector saldría negro dentro de un papel claro.
+  raiz.dataset.tema = 'claro';
+  for (const [param, variable] of Object.entries(COLORES_EMBED)) {
+    const v = parametros.get(param) || '';
+    if (HEX.test(v)) raiz.style.setProperty(variable, '#' + v);
+  }
+}
+
 if (embebido) {
   document.documentElement.dataset.embed = 'veo';
+  aplicarPaletaDeQuienEmbebe();
   addEventListener('message', (e) => {
     if (!origenDeVeo(e.origin)) return;
     const d = e.data;
