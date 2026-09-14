@@ -209,6 +209,43 @@
 }
 .pdf__texto.seleccionando .endOfContent { top: 0; }
 
+/* ---------- subrayados ---------- */
+
+/* Se pintan con `CSS.highlights` (ver lector.js): el navegador dibuja el fondo
+   encima de un rango de texto sin tocar el DOM, así que el reparto en páginas
+   no se entera. Va sobre `*` y no sobre la hoja porque el resaltado se aplica
+   al elemento que contiene cada letra, no a la caja de fuera.
+
+   Un amarillo de rotulador, igual en los tres temas y en el PDF: distinto del
+   color de la selección —azul en el texto, tostado en el PDF—, para que se
+   note que lo subrayado ya quedó y no es que siga seleccionado. Con alfa, y no
+   un tono por tema, porque debajo del PDF el papel es siempre el del archivo. */
+::highlight(subrayado) { background-color: rgb(232 176 48 / .38); }
+
+/* El botón que sale junto a lo seleccionado. Oscuro sobre el papel, como el
+   aviso de abajo: se lee como una capa por encima del libro, no como parte de
+   él. La posición la pone lector.js en `left`/`top`. */
+.subrayador {
+  position: fixed; left: 0; top: 0; z-index: 80;
+  display: flex; padding: 4px;
+  background: var(--text); color: var(--bg);
+  border-radius: var(--radius-full); box-shadow: var(--sh-3);
+  -webkit-user-select: none; user-select: none;
+  touch-action: manipulation;
+}
+.subrayador__boton {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  height: 36px; padding-inline: var(--s3) var(--s4);
+  font: inherit; font-size: var(--fs-sm); font-weight: 600;
+  color: inherit; background: transparent; border: 0;
+  border-radius: var(--radius-full); cursor: pointer; white-space: nowrap;
+  transition: background .16s var(--ease);
+}
+.subrayador__boton:hover { background: color-mix(in srgb, var(--bg) 16%, transparent); }
+.subrayador__boton svg { width: 18px; height: 18px; flex: none; }
+.subrayador[data-accion="subrayar"] .subrayador__icono--quitar,
+.subrayador[data-accion="quitar"] .subrayador__icono--subrayar { display: none; }
+
 /* ---------- carga ---------- */
 
 .hoja__cargando { display: flex; flex-direction: column; align-items: center; gap: var(--s3); color: var(--text-mut); font-size: var(--fs-sm); padding: var(--s6); text-align: center; }

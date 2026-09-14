@@ -103,6 +103,22 @@
   <button class="btn btn--sm btn--linea oculto-escritorio" id="siguiente-movil" type="button">Siguiente</button>
 </footer>
 
+<!-- El subrayador sale junto al texto seleccionado, o junto a un subrayado al
+     tocarlo. Vive FUERA de la hoja a propósito: la hoja recorta lo que se sale
+     de ella y escucha los gestos de pasar de página, y pulsar aquí no debe
+     contar como ninguno de ellos. -->
+<div class="subrayador" id="subrayador" hidden>
+  <button class="subrayador__boton" id="btn-subrayar" type="button">
+    <svg class="subrayador__icono--subrayar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="m14.5 4.5 5 5L10 19H5v-5z"/><path d="M4 22h16"/>
+    </svg>
+    <svg class="subrayador__icono--quitar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18"/>
+    </svg>
+    <span id="subrayador-rotulo">Subrayar</span>
+  </button>
+</div>
+
 <div class="brindis" id="brindis" role="status" aria-live="polite"></div>
 
 <script src="/vendor/jszip.min.js"></script>

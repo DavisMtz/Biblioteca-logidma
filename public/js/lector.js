@@ -498,6 +498,10 @@ let capaEnCurso = 0;
 async function pintarCapaTexto(hojaPdf, vista, anchoCss, altoCss) {
   const turno = ++capaEnCurso;
   capaTexto.replaceChildren();
+  // Con las letras de antes se van los subrayados que colgaban de ellas.
+  delete capaTexto.dataset.pagina;
+  cerrarSubrayador();
+  pintarSubrayados();
   capaTexto.style.width = `${anchoCss}px`;
   capaTexto.style.height = `${altoCss}px`;
   capaTexto.style.setProperty('--scale-factor', String(vista.scale));
@@ -514,7 +518,12 @@ async function pintarCapaTexto(hojaPdf, vista, anchoCss, altoCss) {
     // tumbado.
     capaTexto.style.width = `${anchoCss}px`;
     capaTexto.style.height = `${altoCss}px`;
-    if (turno !== capaEnCurso) capaTexto.replaceChildren();   // llegó tarde: manda la página nueva
+    if (turno !== capaEnCurso) {
+      capaTexto.replaceChildren();   // llegó tarde: manda la página nueva
+    } else {
+      capaTexto.dataset.pagina = String(hojaPdf.pageNumber);
+      pintarSubrayados();
+    }
   } catch { /* sin texto que colocar: es un escaneo */ }
 }
 
@@ -770,6 +779,7 @@ async function montar(indice, local = 1, animarPaso = false) {
     flujo.innerHTML = bloque.trozo.html;
     sinSaltoInicial(flujo);
     bloqueMontado = destino;
+    pintarSubrayados();   // las letras son nuevas: los rangos de antes ya no apuntan a nada
     await esperarImagenes(flujo);
     if (turno !== turnoMontaje) return;
     bloque.paginas = columnasDe(flujo);
@@ -889,6 +899,7 @@ function actualizarControles() {
 async function ir(destino) {
   const nueva = Math.max(1, Math.min(total, Math.round(destino)));
   if (nueva === pagina) return;
+  cerrarSubrayador();
   if (modo === 'pdf') {
     pagina = nueva;
     actualizarControles();
@@ -946,7 +957,7 @@ const teclas = {
 const VERTICALES = new Set(['ArrowUp', 'ArrowDown', ' ']);
 
 function teclado(e) {
-  if (e.target.matches('input, textarea')) return;
+  if (e.target.matches('input, textarea, .subrayador *')) return;
   if (e.key === 'Home') { e.preventDefault(); return void ir(1); }
   if (e.key === 'End') { e.preventDefault(); return void ir(total); }
 
@@ -1090,6 +1101,9 @@ function gestos() {
 
   hoja.addEventListener('touchend', (e) => {
     if (pellizco && e.touches.length < 2) { soltarPellizco(); inicio = null; return; }
+    // Con texto seleccionado, el dedo está ajustando la selección o a punto de
+    // subrayarla: pasar de página ahí se la llevaría por delante.
+    if (!getSelection().isCollapsed) { inicio = null; return; }
     const fin = e.changedTouches[0];
     if (!inicio || e.touches.length || !fin) { inicio = null; return; }
     const { x, y, t, recorreH, desde } = inicio;
@@ -1147,6 +1161,7 @@ deslizador.addEventListener('change', () => ir(Number(deslizador.value)));
 
 function cambiarTamano(delta) {
   if (modo !== 'texto') return;
+  cerrarSubrayador();
   tamanoTexto = Math.max(13, Math.min(28, tamanoTexto + delta));
   try { localStorage.setItem(CLAVE_TAMANO, String(tamanoTexto)); } catch { /* sin almacenamiento */ }
   hoja.style.setProperty('--tamano', `${tamanoTexto}px`);
@@ -1172,6 +1187,7 @@ $('nivel-zoom').addEventListener('click', () => cambiarZoom('ajustar'));
    la posición relativa, no el número de página. */
 let temporizadorAjuste;
 function reajustar() {
+  cerrarSubrayador();
   clearTimeout(temporizadorAjuste);
   temporizadorAjuste = setTimeout(() => {
     if (modo === 'pdf') return void pintarPdf();
@@ -1323,6 +1339,347 @@ function guardarPaginas(n) {
   Bib.api(`/api/libros/${encodeURIComponent(idLibro)}`, {
     method: 'PATCH', body: JSON.stringify({ paginas: n }),
   }).catch(() => {});
+}
+
+/* ---------------- subrayados ----------------
+
+   Se selecciona un trozo, se pulsa «Subrayar» y queda subrayado en ESTE
+   navegador; tocándolo sale «Quitar subrayado».
+
+   Se pintan con la API de resaltado de CSS (`CSS.highlights`) y no envolviendo
+   el texto en `<mark>`. El reparto en páginas sale de contar columnas en la
+   hoja y en su caja gemela, y las dos tienen que maquetar exactamente igual. Un
+   `<mark>` que parte una palabra al final de un renglón cambia dónde se corta
+   —el navegador no reparte guiones a través de dos elementos— y el bloque
+   montado dejaría de medir lo que midió el medidor. El resaltado no toca el
+   DOM: dibuja encima de un rango y la maquetación ni se entera. Donde esa API
+   no existe, el botón no sale; lo guardado no se pierde.
+
+   Cada subrayado se ancla por posiciones de carácter en el texto seguido del
+   bloque —o de la capa de letras de la página, en un PDF—, nunca por nodos:
+   el bloque sale igual en cualquier pantalla y con cualquier tamaño de letra, y
+   PDF.js coloca las mismas letras a cualquier acercamiento. Por si un día
+   cambia el troceado o PDF.js reparte distinto los espacios, se guarda también
+   el texto subrayado: si en su sitio ya no está, se busca el más cercano, y si
+   no aparece, no se pinta, pero tampoco se borra.
+
+   Vive en `localStorage` bajo `bib.subrayados.<id>`, como el marcador. Dentro
+   de VEO el almacenamiento es el mismo (ver el modo embebido): lo subrayado
+   allí sale aquí, y al revés. */
+
+const CLAVE_SUBRAYADOS = `bib.subrayados.${idLibro}`;
+const puedeSubrayar = typeof Highlight === 'function'
+  && typeof CSS !== 'undefined' && Boolean(CSS.highlights);
+const resaltado = puedeSubrayar ? new Highlight() : null;
+if (resaltado) CSS.highlights.set('subrayado', resaltado);
+
+const subrayador = $('subrayador');
+let subrayados = leerSubrayados();
+let pintados = [];          // { sub, rango } de lo que se ve en el bloque o la página de ahora
+let pendiente = null;       // lo que hará el botón al pulsarlo
+let rangoAbierto = null;    // el texto junto al que está el botón
+let ultimoPuntero = matchMedia('(pointer: coarse)').matches ? 'touch' : 'mouse';
+let ratonPulsado = false;
+let temporizadorSeleccion;
+
+function leerSubrayados() {
+  let datos = null;
+  try { datos = JSON.parse(localStorage.getItem(CLAVE_SUBRAYADOS) || 'null'); } catch { /* sin almacenamiento o valor roto */ }
+  const lista = datos && datos.v === 1 && Array.isArray(datos.lista) ? datos.lista : [];
+  // Un valor tocado a mano no puede tumbar el lector: lo que no tenga la forma
+  // esperada se ignora.
+  return lista.filter((s) => s && typeof s === 'object'
+    && (s.lugar === 'bloque' || s.lugar === 'pagina') && Number.isInteger(s.n) && s.n >= 0
+    && Number.isInteger(s.inicio) && Number.isInteger(s.fin) && s.fin > s.inicio
+    && typeof s.texto === 'string' && s.texto.length === s.fin - s.inicio);
+}
+
+function guardarSubrayados() {
+  try {
+    if (subrayados.length) localStorage.setItem(CLAVE_SUBRAYADOS, JSON.stringify({ v: 1, lista: subrayados }));
+    else localStorage.removeItem(CLAVE_SUBRAYADOS);
+    return true;
+  } catch {
+    return false;   // sin almacenamiento, o sin sitio
+  }
+}
+
+/** Dónde se está leyendo, en los términos en que se ancla un subrayado. */
+function lugarActual() {
+  if (modo === 'pdf') return { lugar: 'pagina', n: Number(capaTexto.dataset.pagina) || 0, raiz: capaTexto };
+  return { lugar: 'bloque', n: bloqueMontado, raiz: flujo };
+}
+
+/** Cuántos caracteres de texto hay en `raiz` antes de ese punto. */
+function posicionEn(raiz, nodo, desplazamiento) {
+  const tramo = document.createRange();
+  tramo.selectNodeContents(raiz);
+  tramo.setEnd(nodo, desplazamiento);
+  return tramo.toString().length;
+}
+
+/** El rango que va del carácter `inicio` al `fin` del texto de `raiz`. */
+function rangoEntre(raiz, inicio, fin) {
+  const recorrido = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
+  const rango = document.createRange();
+  let visto = 0;
+  let empezado = false;
+  for (let nodo = recorrido.nextNode(); nodo; nodo = recorrido.nextNode()) {
+    const largo = nodo.data.length;
+    if (!empezado && inicio < visto + largo) { rango.setStart(nodo, inicio - visto); empezado = true; }
+    if (empezado && fin <= visto + largo) { rango.setEnd(nodo, fin - visto); return rango; }
+    visto += largo;
+  }
+  return null;
+}
+
+/** Dónde está hoy el texto de un subrayado: en su sitio o, si no, en el más cercano. */
+function ubicar(sub, texto) {
+  if (texto.slice(sub.inicio, sub.fin) === sub.texto) return sub.inicio;
+  let mejor = -1;
+  for (let i = texto.indexOf(sub.texto); i !== -1; i = texto.indexOf(sub.texto, i + 1)) {
+    if (mejor === -1 || Math.abs(i - sub.inicio) < Math.abs(mejor - sub.inicio)) mejor = i;
+  }
+  return mejor;
+}
+
+function pintarSubrayados() {
+  if (!resaltado) return;
+  resaltado.clear();
+  pintados = [];
+  const { lugar, n, raiz } = lugarActual();
+  const aqui = subrayados.filter((s) => s.lugar === lugar && s.n === n);
+  if (!aqui.length) return;
+  const texto = raiz.textContent;
+  for (const sub of aqui) {
+    const desde = ubicar(sub, texto);
+    const rango = desde < 0 ? null : rangoEntre(raiz, desde, desde + sub.texto.length);
+    if (!rango) continue;
+    resaltado.add(rango);
+    pintados.push({ sub, rango });
+  }
+}
+
+/** La posición de texto bajo un punto de la pantalla, si cae dentro de `raiz`. */
+function posicionBajo(raiz, x, y) {
+  let nodo = null;
+  let desplazamiento = 0;
+  if (document.caretPositionFromPoint) {
+    const punto = document.caretPositionFromPoint(x, y);
+    if (punto) { nodo = punto.offsetNode; desplazamiento = punto.offset; }
+  } else if (document.caretRangeFromPoint) {
+    const punto = document.caretRangeFromPoint(x, y);
+    if (punto) { nodo = punto.startContainer; desplazamiento = punto.startOffset; }
+  }
+  return nodo && raiz.contains(nodo) ? posicionEn(raiz, nodo, desplazamiento) : null;
+}
+
+/** Lo seleccionado dentro de lo que se está leyendo, recortado a lo que se ve. */
+function seleccionUtil() {
+  const seleccion = getSelection();
+  if (!seleccion || seleccion.isCollapsed || !seleccion.rangeCount) return null;
+  const rango = seleccion.getRangeAt(0);
+  const { lugar, n, raiz } = lugarActual();
+  if ((lugar === 'bloque' ? n < 0 : n < 1) || !rango.intersectsNode(raiz)) return null;
+  const texto = raiz.textContent;
+  let inicio = raiz.contains(rango.startContainer) ? posicionEn(raiz, rango.startContainer, rango.startOffset) : null;
+  let fin = raiz.contains(rango.endContainer) ? posicionEn(raiz, rango.endContainer, rango.endOffset) : null;
+  if (inicio === null || fin === null) {
+    // Arrastrando, es fácil salirse de la hoja, y entonces el navegador estira
+    // la selección hasta el pie de la página, llevándose por delante el resto
+    // del bloque que NO se ve. Se queda con lo que sí se ve: en un PDF, la
+    // página; en un libro que refluye, la columna a la vista, de su primera
+    // letra a la última.
+    if (lugar === 'pagina') {
+      inicio ??= 0;
+      fin ??= texto.length;
+    } else {
+      const caja = flujo.getBoundingClientRect();
+      const estilo = getComputedStyle(flujo);
+      if (inicio === null) {
+        inicio = posicionBajo(raiz, caja.left + parseFloat(estilo.paddingLeft) + 1, caja.top + parseFloat(estilo.paddingTop) + 1);
+      }
+      if (fin === null) {
+        fin = posicionBajo(raiz, caja.right - parseFloat(estilo.paddingRight) - 1, caja.bottom - parseFloat(estilo.paddingBottom) - 1);
+      }
+      if (inicio === null || fin === null) return null;
+    }
+  }
+  // Un doble clic se lleva el espacio de detrás, y subrayado deja una cola.
+  while (inicio < fin && /\s/.test(texto[inicio])) inicio++;
+  while (fin > inicio && /\s/.test(texto[fin - 1])) fin--;
+  if (fin <= inicio) return null;
+  return { lugar, n, inicio, fin, rango };
+}
+
+function subrayar(trozo) {
+  const { lugar, n, raiz } = lugarActual();
+  if (lugar !== trozo.lugar || n !== trozo.n) return cerrarSubrayador();   // se pasó de página entretanto
+  let { inicio, fin } = trozo;
+  // Lo que se solapa o se toca con lo nuevo se funde en un solo subrayado: dos
+  // encima del mismo texto se verían más oscuros, y quitar uno dejaría el otro
+  // debajo como si no se hubiera quitado nada.
+  const fundidos = new Set();
+  for (const { sub, rango } of pintados) {
+    const desde = posicionEn(raiz, rango.startContainer, rango.startOffset);
+    const hasta = desde + sub.texto.length;
+    if (desde <= fin && hasta >= inicio) {
+      inicio = Math.min(inicio, desde);
+      fin = Math.max(fin, hasta);
+      fundidos.add(sub);
+    }
+  }
+  const antes = subrayados;
+  subrayados = subrayados.filter((s) => !fundidos.has(s)).concat({
+    lugar, n, inicio, fin, texto: raiz.textContent.slice(inicio, fin), t: Date.now(),
+  });
+  if (!guardarSubrayados()) {
+    subrayados = antes;
+    return Bib.brindis('Este navegador no deja guardar el subrayado', 'error');
+  }
+  getSelection().removeAllRanges();   // si no, la selección tapa el subrayado recién hecho
+  cerrarSubrayador();
+  pintarSubrayados();
+  Bib.brindis('Subrayado guardado');
+}
+
+function quitarSubrayado(sub) {
+  const antes = subrayados;
+  subrayados = subrayados.filter((s) => s !== sub);
+  if (!guardarSubrayados()) {
+    subrayados = antes;
+    return Bib.brindis('Este navegador no deja guardar el cambio', 'error');
+  }
+  cerrarSubrayador();
+  pintarSubrayados();
+  Bib.brindis('Subrayado quitado');
+}
+
+function abrirSubrayador(accion, rango) {
+  const nuevo = subrayador.hidden || subrayador.dataset.accion !== accion;
+  subrayador.dataset.accion = accion;
+  $('subrayador-rotulo').textContent = accion === 'quitar' ? 'Quitar subrayado' : 'Subrayar';
+  rangoAbierto = rango;
+  subrayador.hidden = false;
+  if (!colocarSubrayador() || !nuevo) return;
+  const tactil = ultimoPuntero !== 'mouse';
+  Bib.animar((tl) => tl.fromTo(subrayador, { opacity: 0, y: tactil ? -6 : 6 }, { opacity: 1, y: 0, duration: 0.2 }), { remate: 400 });
+}
+
+/** Pone el botón junto al texto; si ese texto ya no se ve, lo cierra. */
+function colocarSubrayador() {
+  if (!rangoAbierto) return false;
+  const marco = (modo === 'pdf' ? zonaPdf : hoja).getBoundingClientRect();
+  const cajas = [...rangoAbierto.getClientRects()].filter((c) => c.width > 0 && c.height > 0
+    && c.bottom > marco.top && c.top < marco.bottom && c.right > marco.left && c.left < marco.right);
+  if (!cajas.length) { cerrarSubrayador(); return false; }
+  const arriba = Math.min(...cajas.map((c) => c.top));
+  const abajo = Math.max(...cajas.map((c) => c.bottom));
+  const centro = (Math.min(...cajas.map((c) => c.left)) + Math.max(...cajas.map((c) => c.right))) / 2;
+  const ancho = subrayador.offsetWidth;
+  const alto = subrayador.offsetHeight;
+  const margen = 8;
+  // En una pantalla táctil el sistema saca su propio menú —copiar, compartir—
+  // ENCIMA de la selección y cuelga los tiradores por debajo: el botón va
+  // debajo de los tiradores, para no pelearse con ninguno de los dos.
+  const tactil = ultimoPuntero !== 'mouse';
+  let y = tactil ? abajo + 28 : arriba - alto - margen;
+  if (tactil && y + alto > innerHeight - margen) y = arriba - alto - margen;
+  if (!tactil && y < marco.top) y = abajo + margen;
+  y = Math.max(margen, Math.min(innerHeight - alto - margen, y));
+  const x = Math.max(margen, Math.min(innerWidth - ancho - margen, centro - ancho / 2));
+  subrayador.style.left = `${Math.round(x)}px`;
+  subrayador.style.top = `${Math.round(y)}px`;
+  return true;
+}
+
+function cerrarSubrayador() {
+  if (!subrayador) return;
+  subrayador.hidden = true;
+  delete subrayador.dataset.accion;
+  pendiente = null;
+  rangoAbierto = null;
+}
+
+function mirarSeleccion() {
+  if (ratonPulsado) return;   // se decide al soltar: a medio arrastre, el botón estorbaría
+  const trozo = seleccionUtil();
+  if (trozo) {
+    pendiente = { accion: 'subrayar', trozo };
+    abrirSubrayador('subrayar', trozo.rango.cloneRange());
+  } else if (subrayador.dataset.accion === 'subrayar') {
+    cerrarSubrayador();
+  }
+}
+
+/** El subrayado que hay bajo un punto de la pantalla, si hay alguno. */
+function subrayadoBajo(x, y) {
+  return pintados.find(({ rango }) => [...rango.getClientRects()]
+    .some((c) => x >= c.left && x <= c.right && y >= c.top && y <= c.bottom)) || null;
+}
+
+if (puedeSubrayar) {
+  // Con el dedo, la selección se ajusta a tirones con los tiradores: se espera
+  // a que se quede quieta un momento antes de sacar el botón.
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(temporizadorSeleccion);
+    temporizadorSeleccion = setTimeout(mirarSeleccion, 180);
+  });
+
+  document.addEventListener('pointerdown', (e) => {
+    ultimoPuntero = e.pointerType || 'mouse';
+    if (subrayador.contains(e.target)) return;
+    if (e.pointerType === 'mouse') {
+      if (e.button !== 0) return;
+      ratonPulsado = true;
+      cerrarSubrayador();
+    } else if (subrayador.dataset.accion === 'quitar') {
+      cerrarSubrayador();
+    }
+  }, true);
+
+  document.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'mouse' || !ratonPulsado) return;
+    ratonPulsado = false;
+    clearTimeout(temporizadorSeleccion);
+    temporizadorSeleccion = setTimeout(mirarSeleccion, 0);
+  }, true);
+  document.addEventListener('pointercancel', () => { ratonPulsado = false; }, true);
+
+  // Pulsar el botón no puede deshacer la selección que viene a subrayar.
+  subrayador.addEventListener('pointerdown', (e) => e.preventDefault());
+
+  $('btn-subrayar').addEventListener('click', () => {
+    const accion = pendiente;
+    if (!accion) return cerrarSubrayador();
+    if (accion.accion === 'quitar') return quitarSubrayado(accion.sub);
+    subrayar(accion.trozo);
+  });
+
+  // Tocar un subrayado ofrece quitarlo. Un clic que termina una selección no
+  // cuenta: ahí se estaba seleccionando, no tocando.
+  hoja.addEventListener('click', (e) => {
+    if (!pintados.length || !getSelection().isCollapsed) return;
+    const tocado = subrayadoBajo(e.clientX, e.clientY);
+    if (!tocado) return;
+    pendiente = { accion: 'quitar', sub: tocado.sub };
+    abrirSubrayador('quitar', tocado.rango);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !subrayador.hidden) cerrarSubrayador();
+  });
+
+  // Con la página del PDF acercada, el texto se desplaza y el botón lo sigue.
+  zonaPdf.addEventListener('scroll', () => { if (!subrayador.hidden) colocarSubrayador(); }, { passive: true });
+
+  // Subrayado en otra pestaña —o dentro de VEO—: aquí se ve sin recargar.
+  addEventListener('storage', (e) => {
+    if (e.key !== null && e.key !== CLAVE_SUBRAYADOS) return;
+    subrayados = leerSubrayados();
+    if (pendiente && pendiente.accion === 'quitar') cerrarSubrayador();
+    pintarSubrayados();
+  });
 }
 
 iniciar();
