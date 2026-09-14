@@ -1368,12 +1368,14 @@ function guardarPaginas(n) {
    allí sale aquí, y al revés. */
 
 const CLAVE_SUBRAYADOS = `bib.subrayados.${idLibro}`;
+const subrayador = $('subrayador');
+// Sin el botón en la página —un `leer.html` viejo servido por la caché junto a
+// este archivo nuevo— no se engancha nada: mejor sin subrayados que roto.
 const puedeSubrayar = typeof Highlight === 'function'
-  && typeof CSS !== 'undefined' && Boolean(CSS.highlights);
+  && typeof CSS !== 'undefined' && Boolean(CSS.highlights) && Boolean(subrayador);
 const resaltado = puedeSubrayar ? new Highlight() : null;
 if (resaltado) CSS.highlights.set('subrayado', resaltado);
 
-const subrayador = $('subrayador');
 let subrayados = leerSubrayados();
 let pintados = [];          // { sub, rango } de lo que se ve en el bloque o la página de ahora
 let pendiente = null;       // lo que hará el botón al pulsarlo
