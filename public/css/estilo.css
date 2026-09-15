@@ -273,6 +273,32 @@ body[data-desplazado="1"] .cabecera__fila { min-height: 58px; }
 }
 .brindis[data-visible="1"] { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* ---------- ventanas ---------- */
+
+/* Compartidas: el panel edita libros en una y el catálogo los pide en otra.
+   El `color` no sobra: el navegador le da a <dialog> su propio color de texto
+   (`CanvasText`, negro), y sin esto los rótulos salían negros sobre el papel
+   oscuro del tema nocturno. */
+.modal { border: none; padding: 0; background: transparent; color: var(--text); max-width: min(620px, 94vw); width: 100%; }
+.modal::backdrop { background: rgba(20,16,12,.55); backdrop-filter: blur(3px); }
+.modal__caja {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--sh-3); overflow: hidden;
+  display: flex; flex-direction: column; max-height: 88vh;
+}
+.modal__cabecera { display: flex; align-items: center; gap: var(--s3); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+.modal__cabecera h2 { font-size: var(--fs-lg); margin-right: auto; }
+.modal__cuerpo { padding: var(--s5); overflow-y: auto; display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.modal__cuerpo .campo--ancho { grid-column: 1 / -1; }
+.modal__pie { display: flex; justify-content: flex-end; gap: var(--s3); padding: var(--s4) var(--s5); border-top: 1px solid var(--border); background: var(--surface-2); }
+.modal__intro { font-size: var(--fs-sm); color: var(--text-mut); }
+
+.campo__opcional { font-weight: 400; color: var(--text-mut); }
+
+/* Fuera de la vista y del lector de pantalla, pero no `display:none`: hay
+   robots que se saltan los campos escondidos así, y la trampa es para ellos. */
+.trampa { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+
 /* ---------- letrero de instalación ---------- */
 
 .instalar {

@@ -61,6 +61,15 @@
     <div class="portada__texto">
       <h1>Donde el conocimiento es compartido</h1>
       <p class="portada__sub">Lecturas en todo tipo de formatos.</p>
+      <!-- Aquí y no en la cabecera: en el teléfono la cabecera se queda en una
+           sola fila, y un cuarto mando la partiría. -->
+      <button class="btn btn--linea portada__accion" id="btn-solicitar" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/>
+          <path d="M11 4h7.5A1.5 1.5 0 0 1 20 5.5V11"/><path d="M17 14v6M14 17h6"/>
+        </svg>
+        Solicitar libro
+      </button>
     </div>
     <dl class="portada__cifras" id="cifras" aria-live="polite">
       <div><dt>Libros</dt><dd id="cifra-libros">—</dd></div>
@@ -82,6 +91,50 @@
     <a href="https://logidma.com" target="_blank" rel="noopener">logidma.com</a>
   </div>
 </footer>
+
+<!-- Pedir un libro que no está. Es un <dialog> y no una página: se pide sin
+     perder la búsqueda ni el sitio en la estantería. -->
+<dialog class="modal" id="solicitar" aria-labelledby="titulo-solicitar">
+  <form class="modal__caja" id="form-solicitar" novalidate>
+    <header class="modal__cabecera">
+      <h2 id="titulo-solicitar">Solicitar un libro</h2>
+      <button class="btn btn--icono btn--texto" type="button" data-cerrar aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__cuerpo">
+      <p class="modal__intro campo--ancho">¿No está el libro que buscas? Dinos cuál y quien administra la biblioteca lo verá.</p>
+      <div class="campo campo--ancho">
+        <label class="campo__label" for="s-titulo">Título</label>
+        <input class="entrada" id="s-titulo" name="titulo" required maxlength="200" autocomplete="off">
+      </div>
+      <div class="campo campo--ancho">
+        <label class="campo__label" for="s-autor">Autor <span class="campo__opcional">(opcional)</span></label>
+        <input class="entrada" id="s-autor" name="autor" maxlength="200" autocomplete="off">
+      </div>
+      <div class="campo campo--ancho">
+        <label class="campo__label" for="s-nota">Algo más <span class="campo__opcional">(opcional)</span></label>
+        <textarea class="area" id="s-nota" name="nota" maxlength="500" placeholder="Edición, traducción, para qué lo quieres…"></textarea>
+      </div>
+      <div class="campo campo--ancho">
+        <label class="campo__label" for="s-contacto">Cómo avisarte <span class="campo__opcional">(opcional)</span></label>
+        <input class="entrada" id="s-contacto" name="contacto" maxlength="200" autocomplete="off" placeholder="Correo, teléfono o tu nombre">
+        <span class="campo__ayuda">Solo lo ve quien administra, para decirte cuando esté.</span>
+      </div>
+      <!-- Campo trampa: fuera de la vista y del tabulador. Una persona nunca lo
+           rellena; un robot que rellena todo, sí, y el servidor lo descarta. -->
+      <div class="trampa" aria-hidden="true">
+        <label for="s-web">No rellenes este campo</label>
+        <input id="s-web" name="web" tabindex="-1" autocomplete="off">
+      </div>
+      <div class="aviso aviso--error campo--ancho" id="error-solicitar" role="alert" hidden></div>
+    </div>
+    <footer class="modal__pie">
+      <button class="btn btn--linea" type="button" data-cerrar>Cancelar</button>
+      <button class="btn btn--primario" type="submit" id="enviar-solicitud">Enviar solicitud</button>
+    </footer>
+  </form>
+</dialog>
 
 <div class="brindis" id="brindis" role="status" aria-live="polite"></div>
 

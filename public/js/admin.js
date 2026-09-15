@@ -22,6 +22,7 @@ async function comprobarSesion() {
   if (admin) {
     cargarCatalogo();
     cargarAcceso();
+    cargarSolicitudes();   // para la cuenta de la pestaña, aunque no se abra
     Bib.animar((tl) => {
       tl.from('.pestanas', { y: -10, opacity: 0, duration: 0.4 }, 0)
         .from('.soltar', { y: 16, opacity: 0, scale: 0.99, duration: 0.5 }, 0.05);
@@ -146,7 +147,7 @@ $('form-acceso-lectura').addEventListener('submit', async (e) => {
 
 /* ------------------------------ pestañas ------------------------------ */
 
-const PESTANAS = ['subir', 'catalogo', 'seguridad'];
+const PESTANAS = ['subir', 'catalogo', 'solicitudes', 'seguridad'];
 
 function pestana(activa) {
   for (const nombre of PESTANAS) {
@@ -158,6 +159,7 @@ function pestana(activa) {
     y: 10, opacity: 0, duration: 0.35, clearProps: 'transform,opacity',
   }));
   if (activa === 'catalogo') cargarCatalogo();
+  if (activa === 'solicitudes') cargarSolicitudes();
 }
 for (const nombre of PESTANAS) $(`tab-${nombre}`).addEventListener('click', () => pestana(nombre));
 
@@ -587,6 +589,186 @@ $('guardar-editor').addEventListener('click', async () => {
   } finally {
     boton.disabled = false;
     boton.textContent = 'Guardar cambios';
+  }
+});
+
+/* ------------------------------ solicitudes ------------------------------ */
+
+/* Lo que los lectores pidieron desde el catálogo. Las atendidas y descartadas
+   no se borran solas: guardarlas evita volver a decidir dos veces lo mismo. */
+
+const listaSolicitudes = $('lista-solicitudes');
+let solicitudes = [];
+let cuentasSolicitudes = { pendiente: 0, atendida: 0, descartada: 0 };
+let estadoSolicitudes = 'pendiente';
+
+const VACIO_SOLICITUDES = {
+  pendiente: ['No hay solicitudes pendientes', 'Cuando alguien pida un libro desde el catálogo, aparecerá aquí.'],
+  atendida: ['Ninguna atendida todavía', 'Marca una solicitud como atendida cuando subas ese libro.'],
+  descartada: ['Nada descartado', 'Las solicitudes que descartes se guardan aquí.'],
+};
+const MOVER_A = {
+  pendiente: [['atendida', 'Marcar atendida', 'btn--linea'], ['descartada', 'Descartar', 'btn--texto']],
+  atendida: [['pendiente', 'Volver a pendiente', 'btn--texto']],
+  descartada: [['pendiente', 'Volver a pendiente', 'btn--texto']],
+};
+const AVISO_AL_MOVER = {
+  atendida: 'Marcada como atendida',
+  descartada: 'Solicitud descartada',
+  pendiente: 'Vuelve a estar pendiente',
+};
+
+const fechaCorta = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short', year: 'numeric' });
+const haceTanto = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+
+/** «hace 3 horas» si es reciente; la fecha, si ya pasó una semana. */
+function cuando(iso) {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return '';
+  const minutos = Math.round((ms - Date.now()) / 60000);
+  if (minutos > -1) return 'ahora mismo';
+  if (minutos > -60) return haceTanto.format(minutos, 'minute');
+  const horas = Math.round(minutos / 60);
+  if (horas > -24) return haceTanto.format(horas, 'hour');
+  const dias = Math.round(horas / 24);
+  if (dias > -7) return haceTanto.format(dias, 'day');
+  return fechaCorta.format(ms);
+}
+
+/** Un correo se puede pulsar para escribir; cualquier otra cosa se enseña tal cual. */
+function contactoHTML(contacto) {
+  return contacto.split(' · ').map((parte) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parte)
+    ? `<a href="mailto:${Bib.escapar(parte)}">${Bib.escapar(parte)}</a>`
+    : Bib.escapar(parte))).join(' · ');
+}
+
+async function cargarSolicitudes() {
+  try {
+    const datos = await Bib.api(`/api/solicitudes?estado=${encodeURIComponent(estadoSolicitudes)}`);
+    solicitudes = datos.solicitudes;
+    cuentasSolicitudes = datos.cuentas;
+    pintarCuentasSolicitudes();
+    pintarSolicitudes(true);
+  } catch (error) {
+    listaSolicitudes.innerHTML = `<div class="aviso aviso--error">${Bib.escapar(error.message)}</div>`;
+  }
+}
+
+function pintarCuentasSolicitudes() {
+  const pendientes = cuentasSolicitudes.pendiente || 0;
+  const insignia = $('cuenta-solicitudes');
+  insignia.textContent = String(pendientes);
+  insignia.hidden = !pendientes;
+  $('tab-solicitudes').setAttribute('aria-label',
+    pendientes ? `Solicitudes: ${pendientes} pendiente${pendientes === 1 ? '' : 's'}` : 'Solicitudes');
+  for (const hueco of document.querySelectorAll('[data-cuenta]')) {
+    hueco.textContent = String(cuentasSolicitudes[hueco.dataset.cuenta] || 0);
+  }
+}
+
+function pintarSolicitudes(animar = false) {
+  for (const boton of document.querySelectorAll('.solicitudes__filtros .filtro')) {
+    boton.setAttribute('aria-pressed', String(boton.dataset.estado === estadoSolicitudes));
+  }
+  if (!solicitudes.length) {
+    const [titulo, texto] = VACIO_SOLICITUDES[estadoSolicitudes];
+    listaSolicitudes.innerHTML = `<div class="vacio"><h2>${titulo}</h2><p>${texto}</p></div>`;
+    return;
+  }
+
+  listaSolicitudes.innerHTML = solicitudes.map((s) => {
+    const meta = [
+      s.autor,
+      s.veces > 1 ? `${s.veces} personas lo pidieron` : '',
+      // En las pendientes importa cuándo se pidió; en las demás, cuándo se decidió.
+      s.estado === 'pendiente' ? cuando(s.creado_en) : `${s.estado} ${cuando(s.actualizado_en)}`,
+    ].filter(Boolean).map(Bib.escapar).join(' · ');
+    const mover = (MOVER_A[s.estado] || []).map(([estado, rotulo, clase]) =>
+      `<button class="btn btn--sm ${clase}" data-mover="${estado}" type="button">${rotulo}</button>`).join('');
+    return `
+      <article class="fila solicitud" data-id="${Bib.escapar(s.id)}">
+        <div class="solicitud__datos">
+          <span class="fila__titulo">${Bib.escapar(s.titulo)}</span>
+          <span class="fila__meta">${meta}</span>
+          ${s.nota ? `<p class="solicitud__nota">${Bib.escapar(s.nota)}</p>` : ''}
+          ${s.contacto ? `<p class="solicitud__contacto">Avisar a: ${contactoHTML(s.contacto)}</p>` : ''}
+        </div>
+        <div class="fila__acciones">
+          ${mover}
+          <button class="btn btn--sm btn--peligro" data-eliminar type="button">Eliminar</button>
+        </div>
+      </article>`;
+  }).join('');
+
+  if (animar) {
+    Bib.animar((tl) => tl.from([...listaSolicitudes.querySelectorAll('.fila')].slice(0, 16), {
+      y: 12, opacity: 0, duration: 0.4, stagger: 0.03, clearProps: 'transform,opacity',
+    }));
+  }
+}
+
+/** La fila se va antes de repintar: sin movimiento, se repinta y ya. */
+async function retirarSolicitud(fila, id) {
+  const salida = Bib.animar((tl) => tl.to(fila, { opacity: 0, x: 24, duration: 0.25, ease: 'power2.in', clearProps: '' }));
+  if (salida) await salida.then();
+  solicitudes = solicitudes.filter((s) => s.id !== id);
+  pintarCuentasSolicitudes();
+  pintarSolicitudes();
+}
+
+for (const boton of document.querySelectorAll('.solicitudes__filtros .filtro')) {
+  boton.addEventListener('click', () => {
+    if (boton.dataset.estado === estadoSolicitudes) return;
+    estadoSolicitudes = boton.dataset.estado;
+    pintarSolicitudes();
+    cargarSolicitudes();
+  });
+}
+
+listaSolicitudes.addEventListener('click', async (e) => {
+  const fila = e.target.closest('.solicitud');
+  if (!fila) return;
+  const solicitud = solicitudes.find((s) => s.id === fila.dataset.id);
+  if (!solicitud) return;
+
+  const mover = e.target.closest('[data-mover]');
+  if (mover) {
+    const destino = mover.dataset.mover;
+    mover.disabled = true;
+    try {
+      await Bib.api(`/api/solicitudes/${encodeURIComponent(solicitud.id)}`, {
+        method: 'PATCH', body: JSON.stringify({ estado: destino }),
+      });
+      cuentasSolicitudes[solicitud.estado] = Math.max(0, (cuentasSolicitudes[solicitud.estado] || 0) - 1);
+      cuentasSolicitudes[destino] = (cuentasSolicitudes[destino] || 0) + 1;
+      await retirarSolicitud(fila, solicitud.id);
+      Bib.brindis(AVISO_AL_MOVER[destino]);
+    } catch (error) {
+      Bib.brindis(error.message, 'error');
+      mover.disabled = false;
+    }
+    return;
+  }
+
+  // Confirmación en la propia fila, igual que al eliminar un libro.
+  if (e.target.closest('[data-eliminar]')) {
+    fila.querySelector('.fila__acciones').innerHTML = `
+      <span class="ficha__estado" data-tipo="error">¿Eliminar esta solicitud?</span>
+      <button class="btn btn--sm btn--peligro" data-confirmar type="button">Sí, eliminar</button>
+      <button class="btn btn--sm btn--linea" data-cancelar type="button">No</button>`;
+    return;
+  }
+  if (e.target.closest('[data-cancelar]')) return pintarSolicitudes();
+  if (e.target.closest('[data-confirmar]')) {
+    try {
+      await Bib.api(`/api/solicitudes/${encodeURIComponent(solicitud.id)}`, { method: 'DELETE' });
+      cuentasSolicitudes[solicitud.estado] = Math.max(0, (cuentasSolicitudes[solicitud.estado] || 0) - 1);
+      await retirarSolicitud(fila, solicitud.id);
+      Bib.brindis('Solicitud eliminada');
+    } catch (error) {
+      Bib.brindis(error.message, 'error');
+      pintarSolicitudes();
+    }
   }
 });
 
