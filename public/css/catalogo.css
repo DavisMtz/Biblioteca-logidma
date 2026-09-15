@@ -21,6 +21,10 @@
    sitio: si GSAP no llega a correr, esto no cambia nada. */
 .portada h1 .palabra { display: inline-block; will-change: transform; }
 .portada__sub { color: var(--text-mut); max-width: 52ch; margin-top: var(--s3); }
+.portada__accion { margin-top: var(--s4); }
+/* En «Sin resultados» el botón lleva la búsqueda dentro; el guion la recorta,
+   y esto cubre lo que aún no quepa en una pantalla estrecha. */
+.vacio__accion { margin-top: var(--s2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
 .portada__cifras { display: flex; gap: var(--s7); margin: 0; }
 .portada__cifras > div { display: grid; gap: 2px; }
@@ -227,12 +231,15 @@
   .contenedor { padding-inline: var(--s4); }
   /* La tira de filtros llega hasta los bordes de la pantalla: cortada por el
      margen del contenedor parece que se acaba ahí, y hay más a la derecha.
-     El relleno va DOBLE porque el margen negativo ya se comió uno: así el
-     primer filtro queda alineado con el titular y con los libros, y lo que
-     desborda se pierde por el borde en vez de por una raya invisible. */
+     Como la tira ES el contenedor —no va dentro de uno—, basta con su propio
+     relleno: la caja ya mide lo que la pantalla, el primer filtro queda
+     alineado con el titular y lo que desborda se pierde por el borde. Llevaba
+     margen negativo y relleno doble, que son para ir DENTRO de un contenedor:
+     aquí la hacían 32 px más ancha que la pantalla, la página bailaba de lado
+     en el teléfono y las ventanas salían descentradas. */
   .filtros {
-    margin-inline: calc(var(--s4) * -1);
-    padding-inline: calc(var(--s4) * 2);
+    margin-inline: 0;
+    padding-inline: var(--s4);
     padding-block: var(--s4);
   }
   /* En dos columnas estrechas los tres datos no caben en una línea y el año se

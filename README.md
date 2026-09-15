@@ -20,6 +20,10 @@ paginados, sin descargar nada.
 - **Subrayados:** se selecciona un trozo, se pulsa «Subrayar» y queda marcado;
   tocándolo sale «Quitar subrayado». Funciona en el PDF y en los libros que
   refluyen, y se guarda por libro en el navegador de quien lee.
+- **Solicitar un libro:** el botón de la portada —y el de «Sin resultados», que
+  llega con la búsqueda ya escrita— abre un formulario para pedir lo que falta.
+  Quien administra lo ve en `/admin` → Solicitudes, con la cuenta de pendientes
+  en la pestaña, y lo marca como atendido, descartado o lo elimina.
 - **Compartir un libro:** el botón de la barra da un enlace que abre ESE libro,
   por la hoja de compartir del teléfono o copiado al portapapeles.
 - **Abierta o con clave.** Desde `/admin` se decide si el enlace le basta a
@@ -36,7 +40,7 @@ paginados, sin descargar nada.
 | Interfaz | `public/` — HTML, CSS y JS sin compilar, servido como Static Assets |
 | Motor de formatos | `public/js/formatos.js`; el EPUB se descomprime en `public/js/epub-worker.js` con la lógica de `public/js/epub-zip.js` |
 | Archivos de los libros | R2, bucket `biblioteca-logidma` |
-| Catálogo y marcadores | D1, base `biblioteca-logidma` (`migraciones/`) |
+| Catálogo, marcadores y solicitudes | D1, base `biblioteca-logidma` (`migraciones/`) |
 | Portadas | Cloudinary (cloud `srz5sh9l`, carpeta `biblioteca/portadas`) |
 | Puerta cuando está cerrada | `public/entrar.html` + `public/js/entrar.js` |
 | Instalación como app | `public/manifest.webmanifest` + `public/sw.js` |
@@ -76,6 +80,18 @@ Decisiones que no se deducen mirando el código:
   busca el más cercano. Viven solo en el navegador (`bib.subrayados.<id>` en
   `localStorage`), igual que el marcador por bloque: sin cuentas no hay de quién
   guardarlos en el servidor.
+
+- **Las solicitudes van al servidor, no al navegador.** Al revés que el
+  subrayado, esto tiene que llegarle a otra persona en otro dispositivo: D1,
+  tabla `solicitudes` (migración 0006). Es la única escritura pública de la
+  API, y por eso lleva frenos que el resto no necesita: solo JSON, topes de
+  largo, un campo trampa y como mucho cinco envíos por hora por conexión y
+  sesenta entre todos. La conexión se cuenta con un HMAC de la IP con
+  `SESSION_SECRET` (`envios_solicitud`), que sirve para contar y no para saber
+  de quién es; esos apuntes se borran al día. Un título que ya estaba pendiente
+  —sin distinguir mayúsculas ni tildes— suma un voto (`veces`) y junta la nota y
+  el contacto nuevos en vez de abrir otra fila. El contacto es opcional: sin
+  cuentas es la única forma de avisar, pero no se le exige a nadie.
 
 - **Descomprimir el EPUB va en un hilo aparte.** Es el tramo más largo con
   diferencia y, hecho en la página, deja la pantalla muerta todo ese rato.

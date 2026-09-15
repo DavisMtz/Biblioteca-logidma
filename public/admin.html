@@ -62,6 +62,7 @@
       <nav class="pestanas" role="tablist">
         <button class="pestana" id="tab-subir" role="tab" aria-selected="true" aria-controls="vista-subir">Subir libros</button>
         <button class="pestana" id="tab-catalogo" role="tab" aria-selected="false" aria-controls="vista-catalogo">Catálogo</button>
+        <button class="pestana" id="tab-solicitudes" role="tab" aria-selected="false" aria-controls="vista-solicitudes">Solicitudes<span class="pestana__cuenta" id="cuenta-solicitudes" hidden></span></button>
         <button class="pestana" id="tab-seguridad" role="tab" aria-selected="false" aria-controls="vista-seguridad">Seguridad</button>
       </nav>
 
@@ -88,6 +89,20 @@
           <input class="entrada" id="buscar-admin" type="search" placeholder="Buscar en el catálogo" autocomplete="off">
         </div>
         <div class="lista" id="lista"></div>
+      </div>
+
+      <!-- solicitudes -->
+      <div id="vista-solicitudes" role="tabpanel" aria-labelledby="tab-solicitudes" hidden>
+        <div class="solicitudes__cabecera">
+          <p class="solicitudes__texto">Libros que los lectores pidieron desde el catálogo. Si alguien pide
+            un título que ya estaba pendiente, se suma su voto en vez de abrir otra solicitud.</p>
+          <div class="solicitudes__filtros" role="group" aria-label="Ver solicitudes">
+            <button class="filtro" type="button" data-estado="pendiente" aria-pressed="true">Pendientes <span data-cuenta="pendiente"></span></button>
+            <button class="filtro" type="button" data-estado="atendida" aria-pressed="false">Atendidas <span data-cuenta="atendida"></span></button>
+            <button class="filtro" type="button" data-estado="descartada" aria-pressed="false">Descartadas <span data-cuenta="descartada"></span></button>
+          </div>
+        </div>
+        <div class="lista" id="lista-solicitudes"></div>
       </div>
 
       <!-- seguridad -->

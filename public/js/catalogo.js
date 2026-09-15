@@ -125,6 +125,10 @@ async function pintarLibros(libros) {
 
 function pintarVacio(hayFiltro) {
   rejilla.dataset.estado = 'vacio';
+  // Quien no encuentra lo que busca es justo quien querría pedirlo: el botón
+  // llega con la búsqueda ya escrita como título.
+  const buscado = ultimaBusqueda.length > 40 ? `${ultimaBusqueda.slice(0, 38)}…` : ultimaBusqueda;
+  const rotulo = buscado ? `Solicitar «${Bib.escapar(buscado)}»` : 'Solicitar un libro';
   rejilla.innerHTML = `
     <div class="vacio" style="grid-column:1/-1">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -133,8 +137,9 @@ function pintarVacio(hayFiltro) {
       </svg>
       <h2>${hayFiltro ? 'Sin resultados' : 'La estantería está vacía'}</h2>
       <p>${hayFiltro
-        ? 'Ningún libro coincide con esa búsqueda. Prueba con otras palabras o quita el filtro de categoría.'
-        : 'Todavía no hay documentos publicados.'}</p>
+        ? 'Ningún libro coincide con esa búsqueda. Prueba con otras palabras, quita el filtro de categoría o pídelo.'
+        : 'Todavía no hay documentos publicados. Si hay alguno que quieras leer, pídelo.'}</p>
+      <button class="btn btn--primario vacio__accion" type="button" data-solicitar>${rotulo}</button>
     </div>`;
   Bib.animar((tl) => tl.from('.vacio > *', { y: 16, opacity: 0, stagger: 0.07, duration: 0.45 }));
 }
@@ -308,6 +313,7 @@ function animarEntrada(tarjetas) {
       .from(palabras.length ? palabras : titular,
         { y: 28, opacity: 0, duration: 0.7, stagger: 0.05 }, 0.12)
       .from('.portada__sub', { y: 12, opacity: 0, duration: 0.5 }, 0.34)
+      .from('.portada__accion', { y: 12, opacity: 0, duration: 0.45 }, 0.4)
       .from('.portada__cifras > div', { y: 14, opacity: 0, stagger: 0.09, duration: 0.5 }, 0.38)
       .from('.filtro', { y: 12, opacity: 0, stagger: 0.035, duration: 0.4,
         clearProps: 'transform,opacity' }, 0.44)
@@ -463,6 +469,73 @@ let temporizadorAncho;
 addEventListener('resize', () => {
   clearTimeout(temporizadorAncho);
   temporizadorAncho = setTimeout(() => colocarPastilla(false), 150);
+});
+
+/* ---------------- solicitar un libro ----------------
+
+   Quien no encuentra un libro lo pide, y quien administra lo ve en su panel.
+   El formulario es un <dialog>: se pide sin perder la búsqueda ni el sitio en
+   la estantería, y Escape lo cierra sin que haya que programarlo. */
+
+const dialogoSolicitar = document.getElementById('solicitar');
+const formSolicitar = document.getElementById('form-solicitar');
+const errorSolicitar = document.getElementById('error-solicitar');
+const botonEnviarSolicitud = document.getElementById('enviar-solicitud');
+const campoSolicitud = (id) => document.getElementById(id);
+
+function abrirSolicitud(titulo = '') {
+  formSolicitar.reset();
+  errorSolicitar.hidden = true;
+  campoSolicitud('s-titulo').value = titulo;
+  dialogoSolicitar.showModal();
+  // Con el título ya puesto desde la búsqueda, lo siguiente que falta es el autor.
+  campoSolicitud(titulo ? 's-autor' : 's-titulo').focus();
+  Bib.animar((tl) => tl.from('#solicitar .modal__caja', {
+    y: 16, opacity: 0, scale: 0.97, duration: 0.35,
+  }));
+}
+
+document.getElementById('btn-solicitar').addEventListener('click', () => abrirSolicitud());
+// El botón del estado vacío se rehace con cada búsqueda: se escucha en la rejilla.
+rejilla.addEventListener('click', (e) => {
+  if (e.target.closest('[data-solicitar]')) abrirSolicitud(ultimaBusqueda);
+});
+for (const boton of dialogoSolicitar.querySelectorAll('[data-cerrar]')) {
+  boton.addEventListener('click', () => dialogoSolicitar.close());
+}
+// El aviso se va en cuanto se escribe: dejarlo puesto sobre un título ya
+// escrito parece decir que sigue faltando.
+formSolicitar.addEventListener('input', () => { errorSolicitar.hidden = true; });
+
+formSolicitar.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const valor = (id) => campoSolicitud(id).value.trim();
+  errorSolicitar.hidden = true;
+  if (valor('s-titulo').length < 2) {
+    errorSolicitar.textContent = 'Escribe el título del libro que quieres.';
+    errorSolicitar.hidden = false;
+    campoSolicitud('s-titulo').focus();
+    return;
+  }
+  botonEnviarSolicitud.disabled = true;
+  botonEnviarSolicitud.textContent = 'Enviando…';
+  try {
+    const { repetida } = await Bib.api('/api/solicitudes', {
+      method: 'POST',
+      body: JSON.stringify({
+        titulo: valor('s-titulo'), autor: valor('s-autor'),
+        nota: valor('s-nota'), contacto: valor('s-contacto'), web: valor('s-web'),
+      }),
+    });
+    dialogoSolicitar.close();
+    Bib.brindis(repetida ? 'Alguien ya lo había pedido: sumamos tu voto' : 'Solicitud enviada. ¡Gracias!');
+  } catch (fallo) {
+    errorSolicitar.textContent = fallo.message;
+    errorSolicitar.hidden = false;
+  } finally {
+    botonEnviarSolicitud.disabled = false;
+    botonEnviarSolicitud.textContent = 'Enviar solicitud';
+  }
 });
 
 realzarTarjetas();

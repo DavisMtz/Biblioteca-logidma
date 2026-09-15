@@ -734,6 +734,134 @@ app.post('/api/portada/firma', soloAdmin, async (c) => {
   });
 });
 
+/* ---------- solicitudes de libros ----------
+
+   Quien no encuentra un libro puede pedirlo desde el catálogo, y quien
+   administra lo ve en /admin. Es lo primero que un lector ESCRIBE en el
+   servidor —el subrayado vive en su navegador—, porque esto tiene que llegar a
+   otra persona en otro dispositivo.
+
+   Y es una escritura pública: con la biblioteca abierta, de cualquiera. Por
+   eso lleva frenos que el resto de la API no necesita:
+     · Solo JSON. Un formulario de otra web no puede mandar `application/json`
+       sin preflight, y el preflight de un POST ajeno ya se corta arriba.
+     · Topes de largo en todo, y un campo trampa que una persona no ve.
+     · Cinco envíos por hora por conexión y sesenta entre todos. La conexión se
+       cuenta con un HMAC de la IP (ver `envios_solicitud` en la migración
+       0006): sirve para contar, no para saber de quién es.
+   No hay más porque la biblioteca se reparte entre conocidos. */
+
+const ESTADOS_SOLICITUD = ['pendiente', 'atendida', 'descartada'];
+const TOPE_POR_CONEXION = 5;
+const TOPE_GLOBAL = 60;
+
+/** Un campo de texto: sin caracteres de control, espacios de más ni pasarse del tope. */
+const textoDe = (valor: unknown, tope: number): string =>
+  String(valor ?? '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim().slice(0, tope);
+
+/** Con esto se juntan las repetidas: «El Príncipe» y «el principe» son el mismo libro. */
+const tituloLlano = (titulo: string): string =>
+  titulo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/** Suma lo nuevo a lo que ya había, sin repetirlo ni pasarse del tope. */
+function sumarTexto(antes: string, nuevo: string, tope: number): string {
+  if (!nuevo || antes.toLowerCase().includes(nuevo.toLowerCase())) return antes;
+  return (antes ? `${antes} · ${nuevo}` : nuevo).slice(0, tope);
+}
+
+app.post('/api/solicitudes', soloLectores, async (c) => {
+  if (!(c.req.header('content-type') || '').includes('application/json')) {
+    return c.json({ error: 'Formato no admitido.' }, 415);
+  }
+  const datos = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+
+  // El campo trampa: invisible para una persona, irresistible para un robot. Se
+  // contesta como si hubiera ido bien, para no enseñarle qué lo delató.
+  if (textoDe(datos.web, 200)) return c.json({ ok: true }, 201);
+
+  const titulo = textoDe(datos.titulo, 200);
+  if (titulo.length < 2) return c.json({ error: 'Escribe el título del libro que quieres.' }, 400);
+  const autor = textoDe(datos.autor, 200);
+  const nota = textoDe(datos.nota, 500);
+  const contacto = textoDe(datos.contacto, 200);
+
+  const t = ahora();
+  const haceUnaHora = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const huella = (await firmar(`solicitud:${c.req.header('cf-connecting-ip') || 'sin-ip'}`, c.env.SESSION_SECRET)).slice(0, 24);
+
+  const [propios, todos] = await c.env.DB.batch<{ n: number }>([
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM envios_solicitud WHERE huella = ? AND creado_en > ?`).bind(huella, haceUnaHora),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM envios_solicitud WHERE creado_en > ?`).bind(haceUnaHora),
+  ]);
+  if (Number(propios.results?.[0]?.n) >= TOPE_POR_CONEXION) {
+    return c.json({ error: 'Ya enviaste varias solicitudes seguidas. Prueba otra vez dentro de un rato.' }, 429);
+  }
+  if (Number(todos.results?.[0]?.n) >= TOPE_GLOBAL) {
+    return c.json({ error: 'Ahora mismo llegan demasiadas solicitudes. Prueba otra vez dentro de un rato.' }, 429);
+  }
+
+  const llano = tituloLlano(titulo) || titulo.toLowerCase();
+  const previa = await c.env.DB.prepare(
+    `SELECT id, autor, nota, contacto FROM solicitudes WHERE titulo_llano = ? AND estado = 'pendiente' LIMIT 1`,
+  ).bind(llano).first<{ id: string; autor: string; nota: string; contacto: string }>();
+
+  const escrituras = [
+    c.env.DB.prepare(`INSERT INTO envios_solicitud (huella, creado_en) VALUES (?, ?)`).bind(huella, t),
+    // Los apuntes solo sirven para contar la última hora: lo de ayer sobra.
+    c.env.DB.prepare(`DELETE FROM envios_solicitud WHERE creado_en < ?`)
+      .bind(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
+  ];
+  if (previa) {
+    // Se suma el voto y lo que traiga de nuevo: el contacto de la segunda
+    // persona no se puede perder, que también querrá que le avisen.
+    escrituras.push(c.env.DB.prepare(
+      `UPDATE solicitudes SET veces = veces + 1, autor = ?, nota = ?, contacto = ?, actualizado_en = ? WHERE id = ?`,
+    ).bind(previa.autor || autor, sumarTexto(previa.nota, nota, 1000), sumarTexto(previa.contacto, contacto, 400), t, previa.id));
+  } else {
+    escrituras.push(c.env.DB.prepare(
+      `INSERT INTO solicitudes (id, titulo, titulo_llano, autor, nota, contacto, veces, estado, creado_en, actualizado_en)
+       VALUES (?, ?, ?, ?, ?, ?, 1, 'pendiente', ?, ?)`,
+    ).bind(id(), titulo, llano, autor, nota, contacto, t, t));
+  }
+  await c.env.DB.batch(escrituras);
+  return c.json({ ok: true, repetida: Boolean(previa) }, 201);
+});
+
+/** Pendientes primero: son las que piden algo. */
+app.get('/api/solicitudes', soloAdmin, async (c) => {
+  const pedido = c.req.query('estado') || '';
+  const estado = ESTADOS_SOLICITUD.includes(pedido) ? pedido : '';
+  const consulta = c.env.DB.prepare(
+    `SELECT id, titulo, autor, nota, contacto, veces, estado, creado_en, actualizado_en
+       FROM solicitudes ${estado ? 'WHERE estado = ?' : ''}
+      ORDER BY CASE estado WHEN 'pendiente' THEN 0 ELSE 1 END, actualizado_en DESC
+      LIMIT 500`,
+  );
+  const [lista, cuentas] = await c.env.DB.batch<Record<string, unknown>>([
+    estado ? consulta.bind(estado) : consulta,
+    c.env.DB.prepare(`SELECT estado, COUNT(*) AS n FROM solicitudes GROUP BY estado`),
+  ]);
+  const porEstado: Record<string, number> = { pendiente: 0, atendida: 0, descartada: 0 };
+  for (const fila of cuentas.results || []) porEstado[String(fila.estado)] = Number(fila.n) || 0;
+  return c.json({ solicitudes: lista.results || [], cuentas: porEstado });
+});
+
+app.patch('/api/solicitudes/:id', soloAdmin, async (c) => {
+  const { estado } = await c.req.json<{ estado?: string }>().catch(() => ({} as { estado?: string }));
+  if (!estado || !ESTADOS_SOLICITUD.includes(estado)) return c.json({ error: 'No sé qué es ese estado.' }, 400);
+  const hecho = await c.env.DB.prepare(`UPDATE solicitudes SET estado = ?, actualizado_en = ? WHERE id = ?`)
+    .bind(estado, ahora(), c.req.param('id')).run();
+  if (!hecho.meta.changes) return c.json({ error: 'Esa solicitud ya no existe.' }, 404);
+  return c.json({ ok: true, estado });
+});
+
+app.delete('/api/solicitudes/:id', soloAdmin, async (c) => {
+  const hecho = await c.env.DB.prepare(`DELETE FROM solicitudes WHERE id = ?`).bind(c.req.param('id')).run();
+  if (!hecho.meta.changes) return c.json({ error: 'Esa solicitud ya no existe.' }, 404);
+  return c.json({ ok: true });
+});
+
 /* ---------- marcador de lectura ---------- */
 
 /**
