@@ -17,6 +17,9 @@ paginados, sin descargar nada.
   saltos de capítulo salen como los dejó quien maquetó el libro.
 - **Marcador de lectura** por libro, con el tamaño de letra ajustable, y una barra
   abajo que dice por dónde vas.
+- **Subrayados:** se selecciona un trozo, se pulsa «Subrayar» y queda marcado;
+  tocándolo sale «Quitar subrayado». Funciona en el PDF y en los libros que
+  refluyen, y se guarda por libro en el navegador de quien lee.
 - **Compartir un libro:** el botón de la barra da un enlace que abre ESE libro,
   por la hoja de compartir del teléfono o copiado al portapapeles.
 - **Abierta o con clave.** Desde `/admin` se decide si el enlace le basta a
@@ -60,6 +63,19 @@ Decisiones que no se deducen mirando el código:
   cuaja, la cuenta se enseña con una tilde (`~1709`). Medido con un libro de
   millón y medio de caracteres en un teléfono simulado: abrir pasó de 27 s a 1 s,
   y el bloqueo más largo del hilo principal, de 10,9 s a 0,2 s.
+
+- **Los subrayados se pintan con `CSS.highlights`, no con `<mark>`.** El número
+  de páginas de un bloque sale de contar columnas en la hoja y en `#medidor`, y
+  las dos tienen que maquetar igual. Un `<mark>` que parte una palabra al final
+  de un renglón cambia dónde se corta —no se reparten guiones a través de dos
+  elementos— y el bloque montado dejaría de medir lo que midió el medidor. El
+  resaltado dibuja encima de un rango sin tocar el DOM. Cada subrayado se ancla
+  por posiciones de carácter en el texto del bloque (o de la capa de letras de
+  la página del PDF), que no cambian con la pantalla ni con la letra, y guarda
+  además el texto: si un día cambia el troceado y en su sitio ya no está, se
+  busca el más cercano. Viven solo en el navegador (`bib.subrayados.<id>` en
+  `localStorage`), igual que el marcador por bloque: sin cuentas no hay de quién
+  guardarlos en el servidor.
 
 - **Descomprimir el EPUB va en un hilo aparte.** Es el tramo más largo con
   diferencia y, hecho en la página, deja la pantalla muerta todo ese rato.
