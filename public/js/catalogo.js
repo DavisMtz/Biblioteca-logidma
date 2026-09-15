@@ -471,6 +471,13 @@ addEventListener('resize', () => {
   temporizadorAncho = setTimeout(() => colocarPastilla(false), 150);
 });
 
+/* El catálogo arranca ANTES de enganchar el formulario de solicitudes: si el
+   navegador sirve un index.html viejo de la caché con este archivo nuevo, el
+   botón no existe, lo de abajo falla, y la estantería tiene que salir igual. */
+realzarTarjetas();
+esqueletos();
+cargar();
+
 /* ---------------- solicitar un libro ----------------
 
    Quien no encuentra un libro lo pide, y quien administra lo ve en su panel.
@@ -537,7 +544,3 @@ formSolicitar.addEventListener('submit', async (e) => {
     botonEnviarSolicitud.textContent = 'Enviar solicitud';
   }
 });
-
-realzarTarjetas();
-esqueletos();
-cargar();
